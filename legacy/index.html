@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Emission-Sense — Scientifically accurate multi-pollutant vehicle emission calculator based on IPCC, COPERT & EMEP/EEA methods. Check CO₂, NOx, PM2.5, CO & HC for any Indian vehicle.">
+    <meta name="keywords"
+        content="vehicle emission calculator, CO2, NOx, PM2.5, pollution, IPCC, COPERT, India, BS6, emission factors">
+    <title>Emission-Sense — Vehicle Emission Calculator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@600;700;800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- Background Effects -->
+    <div class="bg-gradient"></div>
+    <div class="bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+                        <circle cx="20" cy="20" r="18" stroke="url(#logoGrad)" stroke-width="2.5" />
+                        <path d="M14 26 C14 18, 20 12, 20 12 C20 12, 26 18, 26 26" stroke="url(#logoGrad)"
+                            stroke-width="2" stroke-linecap="round" fill="none" />
+                        <path d="M17 26 C17 21, 20 16, 20 16 C20 16, 23 21, 23 26" fill="url(#logoGrad)"
+                            opacity="0.3" />
+                        <circle cx="20" cy="10" r="2" fill="url(#logoGrad)" opacity="0.6" />
+                        <defs>
+                            <linearGradient id="logoGrad" x1="0" y1="0" x2="40" y2="40">
+                                <stop offset="0%" stop-color="#00e676" />
+                                <stop offset="100%" stop-color="#00b0ff" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <h1>Emission-Sense</h1>
+            </div>
+            <p class="tagline">Scientifically accurate vehicle emission calculator</p>
+
+            <!-- Navigation Tabs -->
+            <nav class="main-nav">
+                <button class="nav-btn active" data-tab="emission" id="nav-emission">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
+                    Emission Calculator
+                </button>
+                <button class="nav-btn" data-tab="map" id="nav-map">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21" />
+                        <line x1="9" y1="3" x2="9" y2="18" />
+                        <line x1="15" y1="6" x2="15" y2="21" />
+                    </svg>
+                    Regulatory Map
+                </button>
+                <button class="nav-btn" data-tab="maintenance" id="nav-maintenance">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path
+                            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                    </svg>
+                    Maintenance
+                </button>
+                <button class="nav-btn" data-tab="policy" id="nav-policy">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                        <line x1="16" y1="13" x2="8" y2="13" />
+                        <line x1="16" y1="17" x2="8" y2="17" />
+                    </svg>
+                    Policy
+                </button>
+            </nav>
+        </header>
+
+        <main>
+            <!-- ============ Tab: Emission Calculator ============ -->
+            <section id="emission-tab" class="tab-content active">
+                <div class="tab-header">
+                    <h2 class="tab-title">Vehicle Emission Estimator</h2>
+                    <p class="tab-subtitle">Calculate your vehicle's daily emission footprint — CO₂, NOx, PM2.5, CO &
+                        HC — using IPCC/COPERT methods</p>
+                </div>
+
+                <!-- Step Progress -->
+                <div class="step-progress">
+                    <div class="step-indicator active" data-step="1">
+                        <div class="step-circle">1</div>
+                        <span class="step-label">Vehicle</span>
+                        <div class="step-line"></div>
+                    </div>
+                    <div class="step-indicator" data-step="2">
+                        <div class="step-circle">2</div>
+                        <span class="step-label">Driving</span>
+                        <div class="step-line"></div>
+                    </div>
+                    <div class="step-indicator" data-step="3">
+                        <div class="step-circle">3</div>
+                        <span class="step-label">Condition</span>
+                    </div>
+                </div>
+
+                <div class="glass-card form-card">
+                    <form id="emissionForm">
+                        <!-- Step 1: Vehicle Profile -->
+                        <div class="form-step active" data-step="1">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <path
+                                                d="M5 17h2m10 0h2M5 17a2 2 0 1 0 4 0M5 17a2 2 0 0 1 4 0m-4 0h4m6 0a2 2 0 1 0 4 0m-4 0a2 2 0 0 1 4 0m-4 0h4M3 11l1.5-5A2 2 0 0 1 6.4 4.5h11.2a2 2 0 0 1 1.9 1.5L21 11" />
+                                            <path d="M3 11h18v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4z" />
+                                        </svg>
+                                        Vehicle Type
+                                    </label>
+                                    <select id="vehicleType">
+                                        <option value="2wheeler">2-Wheeler (Motorcycle/Scooter)</option>
+                                        <option value="car" selected>Car (Hatchback/Sedan)</option>
+                                        <option value="suv">SUV / MUV</option>
+                                        <option value="bus">Bus</option>
+                                        <option value="truck">Truck</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <path
+                                                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
+                                            <path d="M12 6v6l4 2" />
+                                        </svg>
+                                        Fuel Type
+                                    </label>
+                                    <select id="fuelType">
+                                        <option value="petrol">Petrol (Gasoline)</option>
+                                        <option value="diesel">Diesel</option>
+                                        <option value="cng">CNG / LPG</option>
+                                        <option value="hybrid">Hybrid (Petrol + Electric)</option>
+                                        <option value="ev">Electric Vehicle (EV)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                                        </svg>
+                                        Emission Standard
+                                    </label>
+                                    <select id="emissionStandard">
+                                        <option value="bs2">BS-II (Pre 2005)</option>
+                                        <option value="bs3">BS-III (2005–2010)</option>
+                                        <option value="bs4" selected>BS-IV (2010–2020)</option>
+                                        <option value="bs6">BS-VI (2020 onwards)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <rect x="2" y="7" width="20" height="15" rx="2" ry="2" />
+                                            <polyline points="17 2 12 7 7 2" />
+                                        </svg>
+                                        Engine Size
+                                    </label>
+                                    <select id="engineSize">
+                                        <option value="small">Small (&lt;1.2L / &lt;150cc)</option>
+                                        <option value="medium" selected>Medium (1.2–2.0L / 150–500cc)</option>
+                                        <option value="large">Large (&gt;2.0L / &gt;500cc)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button type="button" class="action-btn" id="step1Next">
+                                Next: Driving Pattern →
+                            </button>
+                        </div>
+
+                        <!-- Step 2: Driving Pattern -->
+                        <div class="form-step" data-step="2">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="10" />
+                                            <path d="M12 8v4l3 3" />
+                                        </svg>
+                                        Daily Distance (km)
+                                    </label>
+                                    <input type="number" id="dailyDistance" placeholder="e.g. 40" min="1" max="1000"
+                                        value="40">
+                                </div>
+                                <div class="form-group">
+                                    <label>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                                            <path d="M2 17l10 5 10-5" />
+                                            <path d="M2 12l10 5 10-5" />
+                                        </svg>
+                                        Trips per Day
+                                    </label>
+                                    <input type="number" id="tripsPerDay" placeholder="e.g. 4" min="1" max="50"
+                                        value="4">
+                                </div>
+                            </div>
+
+                            <div class="slider-group">
+                                <div class="slider-header">
+                                    <label>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                                        </svg>
+                                        City vs Highway Split
+                                    </label>
+                                    <span class="slider-value" id="cityPercentText">70% City</span>
+                                </div>
+                                <input type="range" class="range-slider" id="cityPercent" min="0" max="100" value="70">
+                                <div class="slider-labels">
+                                    <span>100% Highway</span>
+                                    <span>100% City</span>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Typical Trip Length</label>
+                                <div class="radio-group">
+                                    <div class="radio-option">
+                                        <input type="radio" name="tripLength" id="tripShort" value="short" checked>
+                                        <label for="tripShort">Short &lt;10 km</label>
+                                    </div>
+                                    <div class="radio-option">
+                                        <input type="radio" name="tripLength" id="tripMedium" value="medium">
+                                        <label for="tripMedium">Medium 10–30 km</label>
+                                    </div>
+                                    <div class="radio-option">
+                                        <input type="radio" name="tripLength" id="tripLong" value="long">
+                                        <label for="tripLong">Long &gt;30 km</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="btn-row">
+                                <button type="button" class="action-btn btn-secondary" id="step2Prev">← Back</button>
+                                <button type="button" class="action-btn" id="step2Next">Next: Condition →</button>
+                            </div>
+                        </div>
+
+                        <!-- Step 3: Age & Condition -->
+                        <div class="form-step" data-step="3">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                                            <line x1="16" y1="2" x2="16" y2="6" />
+                                            <line x1="8" y1="2" x2="8" y2="6" />
+                                            <line x1="3" y1="10" x2="21" y2="10" />
+                                        </svg>
+                                        Vehicle Age (years)
+                                    </label>
+                                    <input type="number" id="vehicleAge" placeholder="e.g. 5" min="0" max="30"
+                                        value="5">
+                                </div>
+                                <div class="form-group">
+                                    <label>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <path
+                                                d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                                        </svg>
+                                        Maintenance Level
+                                    </label>
+                                    <select id="maintenanceLevel">
+                                        <option value="good">Well Maintained</option>
+                                        <option value="average" selected>Average</option>
+                                        <option value="poor">Poorly Maintained</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Climate Zone</label>
+                                <div class="radio-group">
+                                    <div class="radio-option">
+                                        <input type="radio" name="climate" id="climateCool" value="cool">
+                                        <label for="climateCool">❄️ Cool</label>
+                                    </div>
+                                    <div class="radio-option">
+                                        <input type="radio" name="climate" id="climateMod" value="moderate" checked>
+                                        <label for="climateMod">🌤️ Moderate</label>
+                                    </div>
+                                    <div class="radio-option">
+                                        <input type="radio" name="climate" id="climateHot" value="hot">
+                                        <label for="climateHot">🔥 Hot</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="btn-row">
+                                <button type="button" class="action-btn btn-secondary" id="step3Prev">← Back</button>
+                                <button type="submit" class="action-btn" id="calculateBtn">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                                    </svg>
+                                    Calculate Emissions
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Results Dashboard (hidden until calculated) -->
+                <div id="resultsDashboard" class="results-dashboard hidden">
+                    <!-- Rating Banner -->
+                    <div id="ratingBanner" class="rating-banner low">
+                        <div class="rating-icon" id="ratingIcon">🌿</div>
+                        <div class="rating-text">
+                            <h3 id="ratingLabel">Low Emission Vehicle</h3>
+                            <p id="ratingDesc">Your vehicle produces below-average daily emissions</p>
+                        </div>
+                    </div>
+
+                    <!-- Pollutant Cards -->
+                    <div class="pollutant-cards">
+                        <div class="pollutant-card co2">
+                            <div class="pollutant-name">CO₂ (Carbon Dioxide)</div>
+                            <div class="pollutant-value" id="val-co2">0</div>
+                            <div class="pollutant-unit">kg/day</div>
+                            <div class="pollutant-bar">
+                                <div class="pollutant-bar-fill" id="bar-co2" style="width:0%"></div>
+                            </div>
+                        </div>
+                        <div class="pollutant-card nox">
+                            <div class="pollutant-name">NOx (Nitrogen Oxides)</div>
+                            <div class="pollutant-value" id="val-nox">0</div>
+                            <div class="pollutant-unit">g/day</div>
+                            <div class="pollutant-bar">
+                                <div class="pollutant-bar-fill" id="bar-nox" style="width:0%"></div>
+                            </div>
+                        </div>
+                        <div class="pollutant-card pm25">
+                            <div class="pollutant-name">PM2.5 (Fine Particles)</div>
+                            <div class="pollutant-value" id="val-pm25">0</div>
+                            <div class="pollutant-unit">g/day</div>
+                            <div class="pollutant-bar">
+                                <div class="pollutant-bar-fill" id="bar-pm25" style="width:0%"></div>
+                            </div>
+                        </div>
+                        <div class="pollutant-card co">
+                            <div class="pollutant-name">CO (Carbon Monoxide)</div>
+                            <div class="pollutant-value" id="val-co">0</div>
+                            <div class="pollutant-unit">g/day</div>
+                            <div class="pollutant-bar">
+                                <div class="pollutant-bar-fill" id="bar-co" style="width:0%"></div>
+                            </div>
+                        </div>
+                        <div class="pollutant-card hc">
+                            <div class="pollutant-name">HC (Hydrocarbons)</div>
+                            <div class="pollutant-value" id="val-hc">0</div>
+                            <div class="pollutant-unit">g/day</div>
+                            <div class="pollutant-bar">
+                                <div class="pollutant-bar-fill" id="bar-hc" style="width:0%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Breakdown -->
+                    <div class="breakdown-section">
+                        <div class="breakdown-card">
+                            <div class="breakdown-title">📊 Emission Source Breakdown</div>
+                            <div class="stacked-bar" id="sourceBar"></div>
+                            <div id="sourceBreakdown"></div>
+                        </div>
+                        <div class="breakdown-card">
+                            <div class="breakdown-title">🛣️ City vs Highway</div>
+                            <div class="stacked-bar" id="roadBar"></div>
+                            <div id="roadBreakdown"></div>
+                        </div>
+                    </div>
+
+                    <!-- Comparison -->
+                    <div class="comparison-section">
+                        <div class="comparison-title">📈 Comparison with National Average</div>
+                        <div id="comparisonContent"></div>
+                    </div>
+
+                    <!-- Eco Tips -->
+                    <div class="eco-tips">
+                        <div class="eco-tips-title">💡 Recommendations to Reduce Emissions</div>
+                        <div id="ecoTipsContent"></div>
+                    </div>
+
+                    <!-- History -->
+                    <div class="history-section">
+                        <div class="history-title">🕐 Calculation History</div>
+                        <ul class="history-list" id="historyList"></ul>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ Tab: Regulatory Map ============ -->
+            <section id="map-tab" class="tab-content">
+                <div class="tab-header">
+                    <h2 class="tab-title">Regulatory Compliance Map</h2>
+                    <p class="tab-subtitle">Vehicle pollution hotspots across Indian cities — click any zone to see AQI,
+                        PM2.5 sources & policy</p>
+                </div>
+                <div class="glass-card map-wrapper">
+                    <div id="complianceMap"></div>
+                    <div class="map-legend">
+                        <div class="legend-title">Vehicle Pollution Zones</div>
+                        <div class="legend-item"><span class="dot"
+                                style="background:rgba(255,23,68,.5);border:2px solid #ff1744;box-shadow:0 0 6px #ff1744"></span>
+                            Critical AQI 250+</div>
+                        <div class="legend-item"><span class="dot"
+                                style="background:rgba(255,145,0,.5);border:2px solid #ff9100;box-shadow:0 0 6px #ff9100"></span>
+                            High AQI 140–250</div>
+                        <div class="legend-item"><span class="dot"
+                                style="background:rgba(255,234,0,.5);border:2px solid #ffea00;box-shadow:0 0 6px #ffea00"></span>
+                            Moderate AQI 110–140</div>
+                        <div class="legend-item"><span class="dot"
+                                style="background:rgba(0,230,118,.5);border:2px solid #00e676;box-shadow:0 0 6px #00e676"></span>
+                            Low / LEZ</div>
+                        <div style="border-top:1px solid rgba(255,255,255,0.1);margin:6px 0"></div>
+                        <div class="legend-item" style="font-size:0.75rem">
+                            <span
+                                style="display:inline-block;width:18px;height:3px;background:#ff1744;border-radius:2px;vertical-align:middle;margin-right:6px"></span>
+                            Traffic Corridor
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ Tab: Maintenance Alerts ============ -->
+            <section id="maintenance-tab" class="tab-content">
+                <div class="tab-header">
+                    <h2 class="tab-title">Predictive Maintenance</h2>
+                    <p class="tab-subtitle">Stay ahead of your vehicle service schedule to reduce emissions and
+                        breakdowns</p>
+                </div>
+                <div class="glass-card form-card">
+                    <form id="maintenanceForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <circle cx="12" cy="12" r="10" />
+                                        <path d="M12 8v4l3 3" />
+                                    </svg>
+                                    Current Odometer (km)
+                                </label>
+                                <input type="number" id="odometer" placeholder="e.g. 50000">
+                            </div>
+                            <div class="form-group">
+                                <label>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2">
+                                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                                        <line x1="16" y1="2" x2="16" y2="6" />
+                                        <line x1="8" y1="2" x2="8" y2="6" />
+                                        <line x1="3" y1="10" x2="21" y2="10" />
+                                    </svg>
+                                    Last Service Date
+                                </label>
+                                <input type="date" id="lastServiceDates">
+                            </div>
+                        </div>
+                        <button type="submit" class="action-btn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path
+                                    d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                            </svg>
+                            Check Maintenance Status
+                        </button>
+                    </form>
+                    <div id="maintenanceResult" class="result-list hidden">
+                        <!-- Alerts injected here -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- ============ Tab: Policy Repository ============ -->
+            <section id="policy-tab" class="tab-content">
+                <div class="tab-header">
+                    <h2 class="tab-title">Indian Motor Vehicle Policies</h2>
+                    <p class="tab-subtitle">Explore government schemes, incentives and regulations for cleaner
+                        transportation in India</p>
+                </div>
+                <div class="policy-search-bar glass-card">
+                    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+                        <circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="2" />
+                        <path d="M14 14L18 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                    </svg>
+                    <input type="text" id="policySearch" placeholder="Search policies (e.g., EV, FAME, BS6...)">
+                </div>
+                <div class="policy-filter-tags">
+                    <button class="filter-tag active" data-filter="">All</button>
+                    <button class="filter-tag" data-filter="EV">Electric Vehicles</button>
+                    <button class="filter-tag" data-filter="Incentive">Incentives</button>
+                    <button class="filter-tag" data-filter="CNG">CNG</button>
+                    <button class="filter-tag" data-filter="BS6">BS6 Emission</button>
+                    <button class="filter-tag" data-filter="Scrappage">Scrappage</button>
+                    <button class="filter-tag" data-filter="Tax">Tax</button>
+                </div>
+                <div class="policies-grid" id="policiesGrid">
+                    <!-- Policy cards injected here -->
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <svg width="20" height="20" viewBox="0 0 40 40" fill="none">
+                        <circle cx="20" cy="20" r="18" stroke="url(#footerGrad)" stroke-width="2" />
+                        <path d="M14 26 C14 18, 20 12, 20 12 C20 12, 26 18, 26 26" stroke="url(#footerGrad)"
+                            stroke-width="2" stroke-linecap="round" fill="none" />
+                        <defs>
+                            <linearGradient id="footerGrad" x1="0" y1="0" x2="40" y2="40">
+                                <stop offset="0%" stop-color="#00e676" />
+                                <stop offset="100%" stop-color="#00b0ff" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <strong>Emission-Sense</strong>
+                </div>
+                <p>ASEP Group 11 | Vehicle Emission Analysis Project</p>
+                <p class="footer-note">Standards: IPCC / COPERT / EMEP-EEA / CPCB India</p>
+            </div>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
