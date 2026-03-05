@@ -59,19 +59,21 @@ export const MAINTENANCE_MULTIPLIERS = {
 };
 
 // --- COLD START EXCESS ---
-// Base excess multiplier (returns % extra per km driven cold)
-// Formula: E_p_total = E_p_hot * (1 + R_cold_p)
-export function getColdStartRatio(fType: string, climate: string, isShortTrip: boolean): Record<string, number> {
+export function getColdStartRatio(fType: string, climate: string, isShortTrip: boolean, distPerTrip: number = 5): Record<string, number> {
     const r_cold: Record<string, number> = { CO2: 0, NOx: 0, PM25: 0, CO: 0, HC: 0 };
 
-    // Default EV is 0
     if (fType === 'ev') return r_cold;
 
-    let tempMultiplier = 1.0; // Moderate
-    if (climate === 'cool') tempMultiplier = 2.0; // 0–10°C band
-    if (climate === 'hot') tempMultiplier = 0.5;  // >=20°C band
+    let tempMultiplier = 1.0;
+    if (climate === 'cool') tempMultiplier = 2.0;
+    if (climate === 'hot') tempMultiplier = 0.5;
 
-    let tripMultiplier = isShortTrip ? 1.5 : 0.5;
+    // Strongly penalize very short trips (<10 km is considered short, <5 km is extreme)
+    let tripMultiplier = 0.5;
+    if (isShortTrip || distPerTrip <= 10) {
+        tripMultiplier = 1.5;
+        if (distPerTrip <= 5) tripMultiplier = 3.0; // Extreme cold start penalty
+    }
 
     if (fType === 'petrol' || fType === 'cng' || fType === 'hybrid') {
         r_cold.CO2 = 0.15 * tempMultiplier * tripMultiplier;
@@ -88,4 +90,76 @@ export function getColdStartRatio(fType: string, climate: string, isShortTrip: b
     }
 
     return r_cold;
+}
+
+// --- DRIVING CONDITIONS MODIFIERS ---
+export function getDrivingConditionMultipliers(
+    acUsage: 'None' | 'Moderate' | 'Heavy' = 'Moderate',
+    trafficIntensity: 'Low' | 'Medium' | 'High' = 'Medium',
+    loadFactor: number = 1 // 1=Single, 1.5=Family, 2=Full
+) {
+    const mult = { CO2: 1.0, NOx: 1.0, PM25: 1.0, CO: 1.0, HC: 1.0 };
+
+    if (acUsage === 'Heavy') {
+        mult.CO2 *= 1.15; mult.NOx *= 1.25; mult.CO *= 1.2;
+    } else if (acUsage === 'None') {
+        mult.CO2 *= 0.95; mult.NOx *= 0.95;
+    }
+
+    if (trafficIntensity === 'High') {
+        // Stop and go heavily spikes NOx, CO, and PM (brake wear)
+        mult.CO2 *= 1.20; mult.NOx *= 1.40; mult.CO *= 1.50; mult.PM25 *= 1.30;
+    } else if (trafficIntensity === 'Low') {
+        mult.CO2 *= 0.90; mult.NOx *= 0.85; mult.CO *= 0.80; mult.PM25 *= 0.90;
+    }
+
+    // Weight affects fuel consumption almost linearly for CO2
+    if (loadFactor > 1) {
+        const excessLoad = loadFactor - 1;
+        mult.CO2 *= (1 + (excessLoad * 0.1)); // Every extra roughly adds 10%
+        mult.NOx *= (1 + (excessLoad * 0.15));
+    }
+
+    return mult;
+}
+
+// --- EXACT ENGINE & TECH MODIFIERS ---
+export function getTechMultipliers(turbocharged: boolean, fuelInjection: string | null | undefined, transmission: string | null | undefined) {
+    const mult = { CO2: 1.0, NOx: 1.0, PM25: 1.0, CO: 1.0, HC: 1.0 };
+
+    // Turbocharged engines often have slightly better CO2 but can spike NOx/PM under load
+    if (turbocharged) {
+        mult.CO2 *= 0.95;
+        mult.NOx *= 1.10;
+        mult.PM25 *= 1.15;
+    }
+
+    // GDI produces higher PM than MPFI
+    if (fuelInjection && fuelInjection.toUpperCase().includes('GDI')) {
+        mult.PM25 *= 1.50;
+    }
+
+    // AT/AMT slightly worse than Manual typically, CVT better
+    if (transmission) {
+        const tx = transmission.toUpperCase();
+        if (tx.includes('AUTO') || tx.includes('AMT')) {
+            mult.CO2 *= 1.05;
+        } else if (tx.includes('CVT')) {
+            mult.CO2 *= 0.98;
+        }
+    }
+
+    return mult;
+}
+
+// --- NON-EXHAUST (TYRE/BRAKE) MODIFIERS ---
+export function getNonExhaustMultipliers(tyreType: string | undefined, brakeType: string | undefined) {
+    let pm25Mult = 1.0;
+    if (tyreType === 'Performance') pm25Mult *= 1.2; // Softer compound wears faster
+    if (tyreType === 'Old') pm25Mult *= 1.3;
+    if (tyreType === 'Eco') pm25Mult *= 0.85;
+
+    if (brakeType === 'Disc') pm25Mult *= 1.1; // Better stopping but often more brake dust than enclosed drum depending on pad
+
+    return pm25Mult;
 }

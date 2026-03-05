@@ -377,6 +377,15 @@ body {
     font-weight: 500;
 }
 
+.optional-badge {
+    margin-left: auto;
+    font-size: 0.65rem;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    color: var(--text-muted);
+}
+
 .form-group label svg { color: var(--accent-green); }
 
 .form-group input,

@@ -224,78 +224,124 @@ if (emissionForm) {
         const fType = document.getElementById('fuelType').value;
         const eStd = document.getElementById('emissionStandard').value;
         const eSize = document.getElementById('engineSize').value;
-        
+        const fuelEfficiency = parseFloat(document.getElementById('fuelEfficiency').value) || null;
+        const kerbWeight = parseFloat(document.getElementById('kerbWeight').value) || 1500;
+
         const dTot = parseFloat(document.getElementById('dailyDistance').value) || 0;
         const trips = parseInt(document.getElementById('tripsPerDay').value) || 0;
         const cityPct = parseInt(document.getElementById('cityPercent').value) || 0;
         const hwyPct = 100 - cityPct;
-        
+        const trafficCondition = document.getElementById('trafficCondition').value;
+        const acUsage = document.getElementById('acUsage').value;
+        const payloadPct = parseFloat(document.getElementById('payloadPct').value) || 0.0;
+
         const age = parseInt(document.getElementById('vehicleAge').value) || 0;
         const maint = document.getElementById('maintenanceLevel').value;
+        const odometer = parseInt(document.getElementById('odometerReading').value) || null;
         const tripLen = document.querySelector('input[name="tripLength"]:checked').value;
         const climate = document.querySelector('input[name="climate"]:checked').value;
 
         if (dTot <= 0) return;
+
+        console.log("--- Advanced Emission Factors UX Ready ---", {
+            fuelEfficiency, kerbWeight, trafficCondition, acUsage, payloadPct, odometer
+        });
 
         // 2. Base Emission Factors
         let baseEF = EF_DB[vType]?.[fType]?.[eStd];
         if (!baseEF) {
             // Fallback if combination doesn't exist
             baseEF = {
-                city: {CO2: 150, NOx: 0.2, PM25: 0.02, CO: 2.0, HC: 0.5},
-                hwy:  {CO2: 120, NOx: 0.1, PM25: 0.01, CO: 1.0, HC: 0.2}
+                city: { CO2: 150, NOx: 0.2, PM25: 0.02, CO: 2.0, HC: 0.5 },
+                hwy: { CO2: 120, NOx: 0.1, PM25: 0.01, CO: 1.0, HC: 0.2 }
             };
         }
 
-        // 3. Correction Factors (Age & Maintenance)
-        let f_age = 1.0;
-        if (age > 5 && age <= 10) f_age = 1.15;
-        if (age > 10) f_age = 1.35;
-        // EVs don't degrade tailpipe emissions
-        if (fType === 'ev') f_age = 1.0;
+        // --- FUEL EFFICIENCY OVERRIDE ---
+        if (fuelEfficiency && fuelEfficiency > 0) {
+            const stoich = { 'petrol': 2300, 'diesel': 2680, 'cng': 2660, 'hybrid': 2300 }[fType] || 2300;
+            const overrideCO2 = stoich / fuelEfficiency;
+            baseEF.city.CO2 = overrideCO2;
+            baseEF.hwy.CO2 = overrideCO2 * 0.85; // Roughly 15% better on highway
+        }
 
-        let f_maint = 1.0;
-        if (maint === 'good') f_maint = 0.9;
-        if (maint === 'poor') f_maint = 1.3;
-        if (fType === 'ev') f_maint = 1.0;
+        // --- KERB WEIGHT PENALTY (CO2) ---
+        let f_weight = 1.0;
+        if (fType !== '2wheeler' && fType !== '3wheeler' && kerbWeight > 1500) {
+            f_weight = 1.0 + ((kerbWeight - 1500) / 100) * 0.04;
+        }
 
-        // Apply corrections to base EF
-        const adjEF = { city: {}, hwy: {} };
-        ['CO2', 'NOx', 'PM25', 'CO', 'HC'].forEach(p => {
-            adjEF.city[p] = baseEF.city[p] * f_age * f_maint;
-            adjEF.hwy[p] = baseEF.hwy[p] * f_age * f_maint;
-        });
-
-        // 4. Hot Exhaust Calculation
-        const d_city = dTot * (cityPct / 100);
-        const d_hwy = dTot * (hwyPct / 100);
-
-        let e_hot = { CO2:0, NOx:0, PM25:0, CO:0, HC:0 };
-        Object.keys(e_hot).forEach(p => {
-            e_hot[p] = (adjEF.city[p] * d_city) + (adjEF.hwy[p] * d_hwy);
-        });
-
-        // 5. Cold-Start Excess
-        // Only applies to non-EV, mostly city driving
-        // Assume 3km cold per trip
-        let e_cold = { CO2:0, NOx:0, PM25:0, CO:0, HC:0 };
+        // --- MAINTENANCE FACTOR (f_maint) ---
+        let f_maint_obj = { CO2: 1.0, NOx: 1.0, PM25: 1.0, CO: 1.0, HC: 1.0 };
         if (fType !== 'ev') {
-            let cold_dist = Math.min(trips * 3, d_city); // Cap at city distance
-            if (tripLen === 'short') cold_dist *= 1.2;
-            if (climate === 'cool') cold_dist *= 1.3;
-            
-            // Cold start multipliers (R_cold)
-            // Petrol: higher CO/HC cold start. Diesel: higher PM/NOx
-            const r_cold = fType === 'petrol' || fType === 'cng' 
-                ? { CO2: 0.2, NOx: 0.3, PM25: 0.1, CO: 1.5, HC: 1.2 }
-                : { CO2: 0.15, NOx: 0.5, PM25: 0.8, CO: 0.5, HC: 0.4 };
+            if (maint === 'average') f_maint_obj = { CO2: 1.05, NOx: 1.2, PM25: 1.5, CO: 1.5, HC: 1.5 };
+            if (maint === 'poor') f_maint_obj = { CO2: 1.15, NOx: 3.0, PM25: 8.0, CO: 4.0, HC: 5.0 };
+        }
 
-            Object.keys(e_cold).forEach(p => {
-                e_cold[p] = adjEF.city[p] * r_cold[p] * cold_dist;
+        // --- AGE DETERIORATION (f_age) ---
+        let f_age = 1.0;
+        if (fType !== 'ev') {
+            let estimatedMileage = odometer !== null ? odometer : (age * dTot * 365);
+            if (estimatedMileage > 0) {
+                if (estimatedMileage <= 50000) f_age = 1.0 + (estimatedMileage / 50000) * 0.2;
+                else if (estimatedMileage <= 100000) f_age = 1.2 + ((estimatedMileage - 50000) / 50000) * 0.4;
+                else f_age = 1.6 + ((Math.min(estimatedMileage, 160000) - 100000) / 60000) * 0.6; // cap 2.2
+            }
+        }
+
+        // --- DRIVING CONDITION MODIFIERS (f_drive) ---
+        let f_ac = acUsage === 'Heavy' ? 1.15 : (acUsage === 'Moderate' ? 1.05 : 1.0);
+        let f_ac_pm = 1.0 + ((f_ac - 1.0) / 2);
+
+        let f_traffic = { CO2: 1.0, NOx: 1.0, PM25: 1.0, CO: 1.0, HC: 1.0 };
+        if (trafficCondition === 'Stop-and-Go') {
+            f_traffic = { CO2: 1.20, NOx: 1.40, PM25: 1.30, CO: 1.50, HC: 1.20 };
+        }
+
+        let beta = (vType === 'bus' || vType === 'truck') ? 0.40 : 0.15;
+        let f_load = 1.0 + (payloadPct * beta);
+        let f_load_pm = 1.0 + ((f_load - 1.0) * 0.5);
+
+        let f_drive_obj = {
+            CO2: f_ac * f_traffic.CO2 * f_load,
+            NOx: f_ac * f_traffic.NOx * f_load,
+            PM25: f_ac_pm * f_traffic.PM25 * f_load_pm,
+            CO: f_ac * f_traffic.CO * f_load_pm,
+            HC: f_ac * f_traffic.HC * f_load_pm
+        };
+
+        // --- TRIP PHASING (HOT VS COLD) ---
+        let e_cold = { CO2: 0, NOx: 0, PM25: 0, CO: 0, HC: 0 };
+        let e_hot = { CO2: 0, NOx: 0, PM25: 0, CO: 0, HC: 0 };
+
+        let d_cold_total = 0;
+        let d_hot_total = dTot;
+
+        if (fType !== 'ev') {
+            d_cold_total = Math.min(dTot, trips * 1.5); // Max 1.5km cold per trip
+            d_hot_total = Math.max(0, dTot - d_cold_total);
+
+            let d_city_hot = d_hot_total * (cityPct / 100);
+            let d_hwy_hot = d_hot_total * (hwyPct / 100);
+
+            const cold_mults_petrol = { 'cool': { CO2: 1.3, NOx: 1.4, PM25: 1.2, CO: 2.0, HC: 2.5 }, 'moderate': { CO2: 1.2, NOx: 1.2, PM25: 1.1, CO: 1.5, HC: 1.5 }, 'hot': { CO2: 1.1, NOx: 1.1, PM25: 1.0, CO: 1.2, HC: 1.2 } };
+            const cold_mults_diesel = { 'cool': { CO2: 1.2, NOx: 1.6, PM25: 2.0, CO: 1.5, HC: 1.5 }, 'moderate': { CO2: 1.1, NOx: 1.3, PM25: 1.5, CO: 1.2, HC: 1.2 }, 'hot': { CO2: 1.05, NOx: 1.1, PM25: 1.2, CO: 1.1, HC: 1.1 } };
+
+            let e_cold_m = (fType === 'diesel') ? cold_mults_diesel[climate] : cold_mults_petrol[climate];
+
+            ['CO2', 'NOx', 'PM25', 'CO', 'HC'].forEach(p => {
+                let weight_mult = (p === 'CO2') ? f_weight : 1.0;
+                let age_mult = (p === 'CO2') ? 1.0 : f_age;
+
+                // Hot Phase Exhaust
+                e_hot[p] = (baseEF.city[p] * d_city_hot + baseEF.hwy[p] * d_hwy_hot) * age_mult * f_maint_obj[p] * f_drive_obj[p] * weight_mult;
+
+                // Cold Phase Exhaust (Assumed City)
+                e_cold[p] = (baseEF.city[p] * d_cold_total) * age_mult * f_maint_obj[p] * e_cold_m[p] * weight_mult;
             });
         }
 
-        // 6. Non-Exhaust PM (Tyre, Brake, Road wear)
+        // --- NON-EXHAUST EMISSIONS (PM2.5) ---
         // EMEP/EEA TSP factors (g/km) converted to PM2.5
         const nonExhaustBase = {
             '2wheeler': 0.015,
@@ -305,28 +351,35 @@ if (emissionForm) {
             'truck': 0.200
         };
         let ne_PM25 = nonExhaustBase[vType] * dTot;
-        
+
         // EV regen braking reduces brake wear, but heavy battery increases tyre wear
         if (fType === 'ev') ne_PM25 *= 0.9;
-        
-        let e_non_exhaust = { CO2:0, NOx:0, PM25: ne_PM25, CO:0, HC:0 };
 
-        // 7. Evaporative VOC (HC)
-        // Mostly petrol/cng
+        let e_non_exhaust = { CO2: 0, NOx: 0, PM25: ne_PM25, CO: 0, HC: 0 };
+
+        // --- EVAPORATIVE EMISSIONS (HC) ---
         let evap_HC = 0;
-        if (fType === 'petrol' || fType === 'hybrid') evap_HC = 0.2 * dTot;
-        if (fType === 'cng') evap_HC = 0.1 * dTot;
-        if (climate === 'hot') evap_HC *= 1.5;
-        
-        let e_evap = { CO2:0, NOx:0, PM25:0, CO:0, HC: evap_HC };
+        if (fType === 'petrol' || fType === 'hybrid') {
+            let f_temp = climate === 'hot' ? 1.5 : (climate === 'cool' ? 0.6 : 1.0);
+            evap_HC = ((dTot * 0.05) + (trips * 1.5)) * f_temp * (f_maint_obj.HC || 1.0);
+        }
+        let e_evap = { CO2: 0, NOx: 0, PM25: 0, CO: 0, HC: evap_HC };
+
+        // --- UPSTREAM GRID EMISSIONS (EVs) ---
+        let e_grid_co2 = 0;
+        if (fType === 'ev') {
+            const evDrains = { '2wheeler': 0.025, 'car': 0.140, 'suv': 0.200, 'bus': 0.900, 'truck': 1.000 };
+            let drain = evDrains[vType] || 0.140;
+            e_grid_co2 = (dTot * drain / 0.90) * 716.0; // grams
+        }
 
         // 8. Total Emissions
         let total = {
-            CO2:  (e_hot.CO2 + e_cold.CO2) / 1000, // Convert g to kg
-            NOx:  e_hot.NOx + e_cold.NOx,
+            CO2: (e_hot.CO2 + e_cold.CO2 + e_grid_co2) / 1000, // Convert g to kg
+            NOx: e_hot.NOx + e_cold.NOx,
             PM25: e_hot.PM25 + e_cold.PM25 + e_non_exhaust.PM25,
-            CO:   e_hot.CO + e_cold.CO,
-            HC:   e_hot.HC + e_cold.HC + e_evap.HC
+            CO: e_hot.CO + e_cold.CO,
+            HC: e_hot.HC + e_cold.HC + e_evap.HC
         };
 
         // Render Results
@@ -338,14 +391,14 @@ if (emissionForm) {
 
         // Max values for bars (visual only)
         const maxVals = { CO2: 20, NOx: 50, PM25: 5, CO: 200, HC: 50 };
-        Object.keys(Math).forEach(() => {}); // dummy
-        
+        Object.keys(Math).forEach(() => { }); // dummy
+
         setTimeout(() => {
-            document.getElementById('bar-co2').style.width  = Math.min((total.CO2 / maxVals.CO2)*100, 100) + '%';
-            document.getElementById('bar-nox').style.width  = Math.min((total.NOx / maxVals.NOx)*100, 100) + '%';
-            document.getElementById('bar-pm25').style.width = Math.min((total.PM25 / maxVals.PM25)*100, 100) + '%';
-            document.getElementById('bar-co').style.width   = Math.min((total.CO / maxVals.CO)*100, 100) + '%';
-            document.getElementById('bar-hc').style.width   = Math.min((total.HC / maxVals.HC)*100, 100) + '%';
+            document.getElementById('bar-co2').style.width = Math.min((total.CO2 / maxVals.CO2) * 100, 100) + '%';
+            document.getElementById('bar-nox').style.width = Math.min((total.NOx / maxVals.NOx) * 100, 100) + '%';
+            document.getElementById('bar-pm25').style.width = Math.min((total.PM25 / maxVals.PM25) * 100, 100) + '%';
+            document.getElementById('bar-co').style.width = Math.min((total.CO / maxVals.CO) * 100, 100) + '%';
+            document.getElementById('bar-hc').style.width = Math.min((total.HC / maxVals.HC) * 100, 100) + '%';
         }, 100);
 
         // Rating
@@ -353,9 +406,9 @@ if (emissionForm) {
         const ratingIcon = document.getElementById('ratingIcon');
         const ratingLabel = document.getElementById('ratingLabel');
         const ratingDesc = document.getElementById('ratingDesc');
-        
+
         ratingBanner.className = 'rating-banner'; // reset
-        
+
         let score = (total.CO2 / 5) + (total.PM25 / 0.5); // simplistic scoring
         if (fType === 'ev') {
             ratingBanner.classList.add('low');
@@ -387,7 +440,7 @@ if (emissionForm) {
         // Breakdown Chart (PM2.5 source)
         const ex_pct = total.PM25 === 0 ? 0 : ((e_hot.PM25 + e_cold.PM25) / total.PM25) * 100;
         const nex_pct = total.PM25 === 0 ? 0 : (e_non_exhaust.PM25 / total.PM25) * 100;
-        
+
         document.getElementById('sourceBar').innerHTML = `
             <div class="bar-segment" style="width: ${ex_pct}%; background: #ff1744;" title="Exhaust"></div>
             <div class="bar-segment" style="width: ${nex_pct}%; background: #7c4dff;" title="Non-Exhaust"></div>
@@ -406,15 +459,15 @@ if (emissionForm) {
         // Breakdown Chart (Road type CO2)
         const c_pct = total.CO2 === 0 ? 50 : (d_city / dTot) * 100;
         const h_pct = total.CO2 === 0 ? 50 : (d_hwy / dTot) * 100;
-        
+
         document.getElementById('roadBar').innerHTML = `
             <div class="bar-segment" style="width: ${c_pct}%; background: #00e676;" title="City"></div>
             <div class="bar-segment" style="width: ${h_pct}%; background: #00b0ff;" title="Highway"></div>
         `;
-        
+
         let c_co2 = (adjEF.city.CO2 * d_city) / 1000;
         let h_co2 = (adjEF.hwy.CO2 * d_hwy) / 1000;
-        
+
         document.getElementById('roadBreakdown').innerHTML = `
             <div class="breakdown-item">
                 <span class="breakdown-label"><span class="breakdown-dot" style="background:#00e676"></span> City Driving</span>
@@ -430,19 +483,19 @@ if (emissionForm) {
         const nat_avg = { CO2: 4.5, PM25: 0.8 };
         let co2_diff = ((total.CO2 - nat_avg.CO2) / nat_avg.CO2) * 100;
         let co2_color = co2_diff <= 0 ? '#00e676' : '#ff1744';
-        
+
         document.getElementById('comparisonContent').innerHTML = `
             <div class="comparison-row">
                 <div class="comparison-label">You (CO₂)</div>
                 <div class="comparison-bar-track">
-                    <div class="comparison-bar-fill" style="width: ${Math.min(total.CO2*10, 100)}%; background: ${co2_color}"></div>
+                    <div class="comparison-bar-fill" style="width: ${Math.min(total.CO2 * 10, 100)}%; background: ${co2_color}"></div>
                 </div>
                 <div class="comparison-value">${total.CO2.toFixed(1)} kg</div>
             </div>
             <div class="comparison-row">
                 <div class="comparison-label">Nat'l Avg</div>
                 <div class="comparison-bar-track">
-                    <div class="comparison-bar-fill" style="width: ${nat_avg.CO2*10}%; background: rgba(255,255,255,0.3)"></div>
+                    <div class="comparison-bar-fill" style="width: ${nat_avg.CO2 * 10}%; background: rgba(255,255,255,0.3)"></div>
                 </div>
                 <div class="comparison-value">${nat_avg.CO2} kg</div>
             </div>
@@ -466,11 +519,11 @@ if (emissionForm) {
         } else {
             tipsHtml += `<div class="eco-tip"><span class="eco-tip-icon">⚡</span><span>Great job driving an EV! To reduce non-exhaust PM2.5 (tyre wear), ensure tyres are properly inflated and utilize regenerative braking instead of hard stops.</span></div>`;
         }
-        
+
         if (cityPct > 70) {
             tipsHtml += `<div class="eco-tip"><span class="eco-tip-icon">🚦</span><span>High city driving means more idling. Turn off your engine at signals longer than 30 seconds to save fuel and cut local NOx.</span></div>`;
         }
-        
+
         if (!tipsHtml) {
             tipsHtml = `<div class="eco-tip"><span class="eco-tip-icon">🚗</span><span>Maintain smooth acceleration and braking to keep emissions low and maximize fuel economy.</span></div>`;
         }
@@ -537,9 +590,9 @@ function initMap() {
     ];
 
     const getColor = (s) => {
-        if(s === 'critical') return '#ff1744';
-        if(s === 'high') return '#ff9100';
-        if(s === 'moderate') return '#ffea00';
+        if (s === 'critical') return '#ff1744';
+        if (s === 'high') return '#ff9100';
+        if (s === 'moderate') return '#ffea00';
         return '#00e676';
     };
 
@@ -547,7 +600,7 @@ function initMap() {
         const color = getColor(z.severity);
         const html = `<div style="width:20px;height:20px;background:${color};border-radius:50%;opacity:0.6;border:2px solid ${color};box-shadow: 0 0 10px ${color}"></div>`;
         const icon = L.divIcon({ html: html, className: '', iconSize: [20, 20], iconAnchor: [10, 10] });
-        
+
         L.marker(z.coords, { icon: icon }).addTo(map)
             .bindPopup(`
                 <h3>${z.name}</h3>
@@ -571,7 +624,7 @@ if (maintenanceForm) {
         e.preventDefault();
         const odo = parseInt(document.getElementById('odometer').value);
         const lastDate = new Date(document.getElementById('lastServiceDates').value);
-        
+
         if (!odo || !lastDate.getTime()) return;
 
         const now = new Date();
@@ -581,7 +634,7 @@ if (maintenanceForm) {
         if (daysSinceService > 180 || (odo % 10000 >= 9000 || odo % 10000 < 1000)) {
             alerts.push({ type: 'warning', icon: '🛢️', msg: 'Engine Oil & Filter change due. Old oil increases friction and CO2 emissions.' });
         } else {
-            alerts.push({ type: 'ok', icon: '✅', msg: `General Service: OK — Done ${Math.floor(daysSinceService/30)} month(s) ago` });
+            alerts.push({ type: 'ok', icon: '✅', msg: `General Service: OK — Done ${Math.floor(daysSinceService / 30)} month(s) ago` });
         }
 
         if (odo > 50000 && odo % 50000 < 2000) {
@@ -591,7 +644,7 @@ if (maintenanceForm) {
         if (odo > 80000 && odo % 80000 < 3000) {
             alerts.push({ type: 'critical', icon: '��', msg: 'Catalytic Converter/DPF inspection required! Failure causes severe NOx & PM pollution.' });
         }
-        
+
         if (odo > 30000 && odo % 30000 < 1500) {
             alerts.push({ type: 'warning', icon: '🛑', msg: 'Brake pad inspection. Worn brake pads generate toxic metallic particulate matter.' });
         }
@@ -606,7 +659,7 @@ if (maintenanceForm) {
             `;
             maintenanceResult.appendChild(div);
         });
-        
+
         maintenanceResult.classList.remove('hidden');
     });
 }
@@ -629,9 +682,9 @@ let activeFilter = '';
 function renderPolicies(searchText = '', filterParam = '') {
     if (!policiesGrid) return;
     policiesGrid.innerHTML = '';
-    
+
     const term = searchText.toLowerCase();
-    
+
     const filtered = policies.filter(p => {
         const matchText = p.title.toLowerCase().includes(term) || p.desc.toLowerCase().includes(term);
         const matchFilter = filterParam === '' || p.tags.includes(filterParam) || p.year.includes(filterParam);

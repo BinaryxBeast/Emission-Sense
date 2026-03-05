@@ -12,12 +12,26 @@ export interface CalculationInput {
     eStd: EmissionStandard;
     eSize: EngineSize;
     dTot: number;
-    trips: number;
     cityPct: number;
     age: number;
     maint: MaintenanceLevel;
     tripLen: TripLength;
-    climate: ClimateZone;
+
+    // New Advanced Fields
+    engineCC?: number | null;
+    cylinders?: number | null;
+    turbocharged?: boolean;
+    fuelInjection?: string | null;
+    transmission?: string | null;
+    fuelEfficiencyKmpl?: number | null;
+    kerbWeightKg?: number | null;
+    variant?: string | null;
+
+    loadFactor?: number; // 1 (1 person), 1.5 (family), 2.0 (full load)
+    avgSpeed?: number; // km/h
+    acUsage?: 'None' | 'Moderate' | 'Heavy';
+    trafficIntensity?: 'Low' | 'Medium' | 'High';
+    city?: string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -184,10 +198,22 @@ export const EF_DB: Record<string, any> = {
     }
 };
 
-import { getAgeDeteriorationFactor, estimateMileage, MAINTENANCE_MULTIPLIERS, getColdStartRatio, calculateEVGridCO2, FUEL_CO2_FACTORS } from './emissions';
+import {
+    getAgeDeteriorationFactor,
+    estimateMileage,
+    MAINTENANCE_MULTIPLIERS,
+    calculateEVGridCO2,
+    FUEL_CO2_FACTORS,
+    getDrivingConditionMultipliers,
+    getTechMultipliers
+} from './emissions';
 
 export function calculateEmissions(inputs: CalculationInput) {
-    const { vType, fType, eStd, dTot, trips, cityPct, age, maint, tripLen, climate } = inputs;
+    const {
+        vType, fType, eStd, dTot, cityPct, age, maint, tripLen,
+        turbocharged, fuelInjection, transmission, fuelEfficiencyKmpl, kerbWeightKg,
+        loadFactor = 1, acUsage = 'Moderate', trafficIntensity = 'Medium', city
+    } = inputs;
     const hwyPct = 100 - cityPct;
 
     let baseEF = EF_DB[vType]?.[fType]?.[eStd];
@@ -201,47 +227,57 @@ export function calculateEmissions(inputs: CalculationInput) {
     // 1. ADVANCED AGE Factor (Piecewise by mileage)
     let f_age = 1.0;
     if (fType !== 'ev') {
-        const estMileage = estimateMileage(age, dTot); // age * daily * 365
+        const estMileage = estimateMileage(age, dTot);
         f_age = getAgeDeteriorationFactor(estMileage);
     }
 
     // 2. ADVANCED MAINTENANCE Factor (Gross Emitters)
-    let f_maint: Record<string, number> = { NOx: 1.0, CO: 1.0, PM25: 1.0, HC: 1.0 };
+    let f_maint = { NOx: 1.0, CO: 1.0, PM25: 1.0, HC: 1.0 };
     if (fType !== 'ev') {
-        f_maint = MAINTENANCE_MULTIPLIERS[maint] || MAINTENANCE_MULTIPLIERS.average;
+        f_maint = MAINTENANCE_MULTIPLIERS[maint] ?? MAINTENANCE_MULTIPLIERS.average;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const adjEF: Record<string, any> = { city: {}, hwy: {} };
-    // Maintain CO2 without gross-emitter modifiers, only apply f_age for fuel efficiency drops
-    adjEF.city['CO2'] = baseEF.city['CO2'] * f_age;
-    adjEF.hwy['CO2'] = baseEF.hwy['CO2'] * f_age;
+    // 3. NEW: DRIVING CONDITIONS & TECH FACTORS
+    const f_drive = getDrivingConditionMultipliers(acUsage, trafficIntensity, loadFactor);
+    const f_tech = getTechMultipliers(turbocharged || false, fuelInjection, transmission);
 
-    ['NOx', 'PM25', 'CO', 'HC'].forEach(p => {
-        const multiplier = f_age * (f_maint[p] || 1.0);
+    const adjEF = { city: {} as any, hwy: {} as any };
+
+    // Maintain CO2 without gross-emitter modifiers, only apply f_age for fuel efficiency drops
+    adjEF.city['CO2'] = baseEF.city['CO2'] * f_age * f_drive.CO2 * f_tech.CO2;
+    adjEF.hwy['CO2'] = baseEF.hwy['CO2'] * f_age * f_drive.CO2 * f_tech.CO2;
+
+    ['NOx', 'PM25', 'CO', 'HC'].forEach((p: any) => {
+        const multiplier = f_age * (f_maint[p as keyof typeof f_maint] || 1.0) * (f_drive[p as keyof typeof f_drive] || 1.0) * (f_tech[p as keyof typeof f_tech] || 1.0);
         adjEF.city[p] = baseEF.city[p] * multiplier;
         adjEF.hwy[p] = baseEF.hwy[p] * multiplier;
     });
 
+    // Heavy weight penalty
+    if (kerbWeightKg && kerbWeightKg > 1500) {
+        const extraWeightRatio = (kerbWeightKg - 1500) / 1000;
+        adjEF.city['CO2'] *= (1 + extraWeightRatio * 0.5);
+        adjEF.hwy['CO2'] *= (1 + extraWeightRatio * 0.4);
+    }
+
     const d_city = dTot * (cityPct / 100);
     const d_hwy = dTot * (hwyPct / 100);
 
-    const e_hot: Record<string, number> = { CO2: 0, NOx: 0, PM25: 0, CO: 0, HC: 0 };
-    Object.keys(e_hot).forEach(p => {
-        e_hot[p] = (adjEF.city[p] * d_city) + (adjEF.hwy[p] * d_hwy);
+    const e_hot = { CO2: 0, NOx: 0, PM25: 0, CO: 0, HC: 0 };
+    Object.keys(e_hot).forEach((p: any) => {
+        e_hot[p as keyof typeof e_hot] = (adjEF.city[p] * d_city) + (adjEF.hwy[p] * d_hwy);
     });
 
-    // 3. ADVANCED COLD START MULTIPLIERS
-    const e_cold: Record<string, number> = { CO2: 0, NOx: 0, PM25: 0, CO: 0, HC: 0 };
+    // 4. ADVANCED COLD START MULTIPLIERS (Simplified for tripLen)
+    const e_cold = { CO2: 0, NOx: 0, PM25: 0, CO: 0, HC: 0 };
     if (fType !== 'ev') {
-        // Cold distance depends on number of starts (trips/2 usually cold)
-        let cold_dist = Math.min((trips * 1.5), d_city); // Assume first 1.5km of cold start
+        // Base penalty multipliers based purely on TripLength categorical input
+        const tripMuls = { short: 1.4, medium: 1.1, long: 1.0 };
+        const coldMul = tripMuls[tripLen] || 1.1;
 
-        const r_cold_multiplier = getColdStartRatio(fType, climate, tripLen === 'short');
-
-        Object.keys(e_cold).forEach(p => {
-            // Cold start is base * multiplier * cold distance
-            e_cold[p] = adjEF.city[p] * (r_cold_multiplier[p] || 0) * cold_dist;
+        Object.keys(e_cold).forEach((p: any) => {
+            // Add a percentage overhead to base emissions based on trip length
+            e_cold[p as keyof typeof e_cold] = e_hot[p as keyof typeof e_hot] * (coldMul - 1.0);
         });
     }
 
@@ -252,23 +288,36 @@ export function calculateEmissions(inputs: CalculationInput) {
         'bus': 0.150,
         'truck': 0.200
     };
-    let ne_PM25 = nonExhaustBase[vType] * dTot;
-    if (fType === 'ev') ne_PM25 *= 0.9;
+    let ne_PM25 = nonExhaustBase[vType] * dTot; // Base non-exhaust PM2.5
+    if (fType === 'ev') ne_PM25 *= 0.9; // Regenerative braking slightly reduces wear, but heavier weight increases tire wear
 
     const e_non_exhaust = { CO2: 0, NOx: 0, PM25: ne_PM25, CO: 0, HC: 0 };
 
     let evap_HC = 0;
     if (fType === 'petrol' || fType === 'hybrid') evap_HC = 0.2 * dTot;
     if (fType === 'cng') evap_HC = 0.1 * dTot;
-    if (climate === 'hot') evap_HC *= 1.5;
 
     const e_evap = { CO2: 0, NOx: 0, PM25: 0, CO: 0, HC: evap_HC };
 
-    // 4. EV GRID CO2 FORMULA
+    // 5. FUEL EFFICIENCY BASED CO2 & EV GRID
     let finalCO2 = (e_hot.CO2 + e_cold.CO2) / 1000;
+
+    // Override CO2 calculation if real-world precise fuel efficiency is provided!
+    if (fuelEfficiencyKmpl && fuelEfficiencyKmpl > 0 && fType !== 'ev') {
+        const litersConsumed = dTot / fuelEfficiencyKmpl;
+        let fuelCo2Kg = 0;
+        if (fType === 'petrol' || fType === 'hybrid') fuelCo2Kg = litersConsumed * FUEL_CO2_FACTORS.GASOLINE_KG_PER_L;
+        if (fType === 'diesel') fuelCo2Kg = litersConsumed * FUEL_CO2_FACTORS.DIESEL_KG_PER_L;
+        if (fType === 'cng') fuelCo2Kg = (dTot / fuelEfficiencyKmpl) * FUEL_CO2_FACTORS.CNG_KG_PER_KG;
+
+        // Add cold start overhead (which aren't perfectly captured in standard ARAI)
+        finalCO2 = fuelCo2Kg + (e_cold.CO2 / 1000);
+    }
+
     if (fType === 'ev') {
-        // Returns grams, so convert to kg
         finalCO2 = calculateEVGridCO2(vType, dTot, FUEL_CO2_FACTORS.ELECTRIC_INDIA_KG_PER_KWH) / 1000;
+        // Optionally penalize AC via EV consumption
+        if (acUsage === 'Heavy') finalCO2 *= 1.2;
     }
 
     const total = {

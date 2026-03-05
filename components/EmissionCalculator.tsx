@@ -13,12 +13,13 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
         eStd: 'bs4',
         eSize: 'medium',
         dTot: 40,
-        trips: 4,
         cityPct: 70,
         age: 5,
         maint: 'average',
         tripLen: 'short',
-        climate: 'moderate'
+        acUsage: 'Moderate',
+        trafficIntensity: 'Medium',
+        loadFactor: 1
     });
 
     const [searchQuery, setSearchQuery] = useState('');
@@ -26,11 +27,17 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
     const [searchError, setSearchError] = useState('');
     const [isEditingSpecs, setIsEditingSpecs] = useState(false);
     const [extractedVehicle, setExtractedVehicle] = useState<{
-        name: string, vType: any, fType: any, eStd: any, eSize: any, imageKeyword: string, imageUrl?: string, confidence: number
+        name: string, vType: any, fType: any, eStd: any, eSize: any, imageKeyword: string, imageUrl?: string, confidence: number,
+        engineCC?: number, cylinders?: number, turbocharged?: boolean, fuelInjection?: string, transmission?: string, fuelEfficiencyKmpl?: number, kerbWeightKg?: number, variant?: string
     } | null>(null);
+
+    const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null);
+    const [showTransparency, setShowTransparency] = useState(false);
 
     const [results, setResults] = useState<Record<string, any> | null>(null);
     const [history, setHistory] = useState<Record<string, string>[]>([]);
+    const [recommendations, setRecommendations] = useState<{ title: string, description: string }[] | null>(null);
+    const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
 
     useEffect(() => {
         const saved = localStorage.getItem('emiHistory');
@@ -62,7 +69,23 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
             });
 
             if (!res.ok) {
-                throw new Error('Failed to find vehicle. Please try again.');
+                const errorData = await res.json().catch(() => null);
+                if (res.status === 429 && errorData?.errorType === 'rate_limit') {
+                    setRateLimitCountdown(errorData.retryAfter || 60);
+
+                    const interval = setInterval(() => {
+                        setRateLimitCountdown((prev) => {
+                            if (prev === null || prev <= 1) {
+                                clearInterval(interval);
+                                return null;
+                            }
+                            return prev - 1;
+                        });
+                    }, 1000);
+
+                    throw new Error(errorData.error || 'Too many requests. Please wait.');
+                }
+                throw new Error(errorData?.error || 'Failed to find vehicle. Please try again.');
             }
 
             const data = await res.json();
@@ -73,7 +96,15 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                 vType: data.vType,
                 fType: data.fType,
                 eStd: data.eStd,
-                eSize: data.eSize
+                eSize: data.eSize,
+                engineCC: data.engineCC,
+                cylinders: data.cylinders,
+                turbocharged: data.turbocharged,
+                fuelInjection: data.fuelInjection,
+                transmission: data.transmission,
+                fuelEfficiencyKmpl: data.fuelEfficiencyKmpl,
+                kerbWeightKg: data.kerbWeightKg,
+                variant: data.variant
             }));
         } catch (err: any) {
             setSearchError(err.message || 'An error occurred while searching.');
@@ -82,7 +113,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
         }
     };
 
-    const handleCalculate = (e: React.FormEvent) => {
+    const handleCalculate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (inputs.dTot <= 0) return;
 
@@ -101,6 +132,35 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
         setTimeout(() => {
             document.getElementById('resultsDashboard')?.scrollIntoView({ behavior: 'smooth' });
         }, 100);
+
+        // Fetch AI Recommendations
+        if (extractedVehicle) {
+            setIsLoadingRecommendations(true);
+            setRecommendations(null);
+            try {
+                const recRes = await fetch('/api/generate-recommendations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: extractedVehicle.name,
+                        fuel_type: inputs.fType,
+                        emission_standard: inputs.eStd,
+                        engine_size: inputs.eSize,
+                        city_highway_split: inputs.cityPct,
+                        ac_usage: inputs.acUsage,
+                        vehicle_load: inputs.loadFactor
+                    })
+                });
+                if (recRes.ok) {
+                    const recData = await recRes.json();
+                    setRecommendations(recData);
+                }
+            } catch (err) {
+                console.error("Failed to fetch recommendations:", err);
+            } finally {
+                setIsLoadingRecommendations(false);
+            }
+        }
     };
 
     const getRating = (res: Record<string, any>) => {
@@ -147,8 +207,8 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                         position: 'relative',
                                         maxWidth: '600px',
                                         margin: '0 auto',
-                                        background: 'rgba(255, 255, 255, 0.05)',
-                                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                                        background: 'var(--glass-bg)',
+                                        border: '1px solid var(--glass-border)',
                                         borderRadius: '12px',
                                         padding: '8px',
                                         display: 'flex',
@@ -183,16 +243,16 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                         <button
                                             type="button"
                                             onClick={handleSearch}
-                                            disabled={isSearching || !searchQuery.trim()}
+                                            disabled={isSearching || !searchQuery.trim() || rateLimitCountdown !== null}
                                             style={{
                                                 background: 'var(--accent-green)',
-                                                color: '#000',
+                                                color: 'var(--bg-dark)',
                                                 border: 'none',
                                                 padding: '12px 24px',
                                                 borderRadius: '8px',
                                                 fontWeight: 600,
-                                                cursor: (isSearching || !searchQuery.trim()) ? 'not-allowed' : 'pointer',
-                                                opacity: (isSearching || !searchQuery.trim()) ? 0.7 : 1,
+                                                cursor: (isSearching || !searchQuery.trim() || rateLimitCountdown !== null) ? 'not-allowed' : 'pointer',
+                                                opacity: (isSearching || !searchQuery.trim() || rateLimitCountdown !== null) ? 0.7 : 1,
                                                 transition: 'all 0.2s',
                                                 marginLeft: '8px'
                                             }}
@@ -200,21 +260,43 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                             {isSearching ? (
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                     <span className="spinner" style={{
-                                                        width: '16px', height: '16px', border: '2px solid rgba(0,0,0,0.2)', borderTopColor: '#000', borderRadius: '50%', animation: 'spin 1s linear infinite'
+                                                        width: '16px', height: '16px', border: '2px solid rgba(0,0,0,0.4)', borderTopColor: 'var(--bg-dark)', borderRadius: '50%', animation: 'spin 1s linear infinite'
                                                     }}></span>
                                                     Searching
                                                 </div>
                                             ) : 'Search'}
                                         </button>
                                     </div>
-                                    {searchError && (
-                                        <div style={{ color: '#ff1744', marginTop: '16px', fontSize: '0.9rem' }}>{searchError}</div>
+                                    {searchError && rateLimitCountdown === null && (
+                                        <div style={{ color: 'var(--severity-critical)', marginTop: '16px', fontSize: '0.9rem' }}>{searchError}</div>
+                                    )}
+                                    {rateLimitCountdown !== null && (
+                                        <div style={{
+                                            background: 'rgba(255, 159, 10, 0.1)',
+                                            border: '1px solid rgba(255, 159, 10, 0.3)',
+                                            borderRadius: '8px',
+                                            padding: '12px 16px',
+                                            marginTop: '16px',
+                                            color: 'var(--severity-high)',
+                                            fontSize: '0.9rem',
+                                            textAlign: 'center',
+                                            display: 'flex',
+                                            gap: '12px',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            animation: 'fadeIn 0.3s ease'
+                                        }}>
+                                            <span style={{ fontSize: '1.2rem' }}>⏳</span>
+                                            <p style={{ margin: 0, lineHeight: 1.4 }}>
+                                                Free API Rate Limit Exceeded. Please wait <strong style={{ color: 'var(--text-primary)', fontSize: '1.05rem', background: 'var(--glass-border)', padding: '2px 6px', borderRadius: '4px' }}>{rateLimitCountdown}</strong> seconds to try again.
+                                            </p>
+                                        </div>
                                     )}
                                 </div>
                             ) : (
                                 <div className="vehicle-preview-card" style={{
                                     background: 'rgba(255, 255, 255, 0.03)',
-                                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                                    border: '1px solid var(--glass-border)',
                                     borderRadius: '16px',
                                     padding: '32px 24px',
                                     textAlign: 'center',
@@ -239,7 +321,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
+                                            boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
                                         }}>
                                             <img
                                                 src={extractedVehicle.imageUrl || `https://loremflickr.com/400/300/car,${encodeURIComponent(extractedVehicle.imageKeyword.replace(/ /g, ','))}`}
@@ -264,12 +346,12 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                             width: '120px',
                                             height: '120px',
                                             margin: '0 auto 24px',
-                                            background: 'rgba(255,255,255,0.05)',
+                                            background: 'var(--glass-bg)',
                                             borderRadius: '50%',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
+                                            boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
                                         }}>
                                             <svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                                                 <path d="M5 17h2m10 0h2M5 17a2 2 0 1 0 4 0M5 17a2 2 0 0 1 4 0m-4 0h4m6 0a2 2 0 1 0 4 0m-4 0a2 2 0 0 1 4 0m-4 0h4M3 11l1.5-5A2 2 0 0 1 6.4 4.5h11.2a2 2 0 0 1 1.9 1.5L21 11" />
@@ -283,40 +365,70 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                     {!isEditingSpecs ? (
                                         <>
                                             <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '24px' }}>
-                                                <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.08)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', textTransform: 'capitalize' }}>
+                                                <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', textTransform: 'capitalize' }}>
                                                     {extractedVehicle.vType === '2wheeler' ? '2-Wheeler' : extractedVehicle.vType.toUpperCase()}
                                                 </span>
-                                                <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.08)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', textTransform: 'capitalize' }}>
+                                                <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', textTransform: 'capitalize' }}>
                                                     {extractedVehicle.fType === 'ev' ? 'Electric' : extractedVehicle.fType.toUpperCase()}
                                                 </span>
-                                                <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.08)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', textTransform: 'uppercase' }}>
+                                                <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', textTransform: 'uppercase' }}>
                                                     {extractedVehicle.eStd.replace('bs', 'BS-')}
                                                 </span>
-                                                <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.08)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', textTransform: 'capitalize' }}>
+                                                <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', textTransform: 'capitalize' }}>
                                                     {extractedVehicle.eSize} Engine
                                                 </span>
+                                                {extractedVehicle.variant && (
+                                                    <span className="spec-badge" style={{ background: 'rgba(92, 107, 192, 0.4)', border: '1px solid rgba(92, 107, 192, 0.8)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', fontWeight: 600 }}>
+                                                        Variant: {extractedVehicle.variant}
+                                                    </span>
+                                                )}
+                                                {extractedVehicle.transmission && (
+                                                    <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem' }}>
+                                                        {extractedVehicle.transmission}
+                                                    </span>
+                                                )}
+                                                {extractedVehicle.engineCC && (
+                                                    <span className="spec-badge" style={{ background: 'rgba(255,255,255,0.04)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem' }}>
+                                                        {extractedVehicle.engineCC}cc {extractedVehicle.turbocharged ? 'Turbo' : ''}
+                                                    </span>
+                                                )}
+                                                {extractedVehicle.fuelEfficiencyKmpl && (
+                                                    <span className="spec-badge" style={{ background: 'rgba(0, 200, 150, 0.2)', border: '1px solid rgba(0, 200, 150, 0.5)', padding: '8px 16px', borderRadius: '30px', fontSize: '0.95rem', color: 'var(--accent-green)' }}>
+                                                        {extractedVehicle.fuelEfficiencyKmpl} km/l
+                                                    </span>
+                                                )}
                                             </div>
 
-                                            {extractedVehicle.confidence < 75 && (
-                                                <div style={{
-                                                    background: 'rgba(255, 171, 0, 0.1)',
-                                                    border: '1px solid rgba(255, 171, 0, 0.3)',
-                                                    borderRadius: '8px',
-                                                    padding: '12px 16px',
-                                                    marginBottom: '24px',
-                                                    color: '#ffab00',
-                                                    fontSize: '0.9rem',
-                                                    textAlign: 'left',
-                                                    display: 'flex',
-                                                    gap: '12px',
-                                                    alignItems: 'flex-start'
-                                                }}>
-                                                    <span style={{ fontSize: '1.2rem' }}>⚠️</span>
-                                                    <p style={{ margin: 0, lineHeight: 1.4 }}>
-                                                        We had to guess some details like the year or fuel type. For a more accurate calculation, edit your search (e.g., 'Honda City 2018 Petrol').
-                                                    </p>
+                                            <div style={{
+                                                background: 'rgba(255, 255, 255, 0.03)',
+                                                border: `1px solid ${extractedVehicle.confidence < 75 ? 'rgba(255, 159, 10, 0.4)' : 'var(--glass-border)'}`,
+                                                borderRadius: '12px',
+                                                padding: '20px',
+                                                marginBottom: '24px',
+                                                textAlign: 'left'
+                                            }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                                    <h4 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span>🔍</span> Confirm Vehicle Details
+                                                    </h4>
+                                                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: extractedVehicle.confidence > 85 ? 'var(--accent-green)' : extractedVehicle.confidence > 60 ? 'var(--severity-high)' : 'var(--severity-critical)', background: 'rgba(0,0,0,0.4)', padding: '6px 12px', borderRadius: '20px' }}>
+                                                        {extractedVehicle.confidence}% Auto-Match
+                                                    </span>
                                                 </div>
-                                            )}
+
+                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '0.95rem', color: 'var(--text-secondary)' }}>
+                                                    <div style={{ background: 'rgba(0,0,0,0.4)', padding: '10px', borderRadius: '8px' }}><strong style={{ color: 'var(--text-primary)' }}>Engine:</strong> {extractedVehicle.engineCC ? `${extractedVehicle.engineCC} cc` : 'N/A'}</div>
+                                                    <div style={{ background: 'rgba(0,0,0,0.4)', padding: '10px', borderRadius: '8px' }}><strong style={{ color: 'var(--text-primary)' }}>Fuel:</strong> {extractedVehicle.fType.toUpperCase()}</div>
+                                                    <div style={{ background: 'rgba(0,0,0,0.4)', padding: '10px', borderRadius: '8px' }}><strong style={{ color: 'var(--text-primary)' }}>Class:</strong> {extractedVehicle.vType.toUpperCase()}</div>
+                                                    <div style={{ background: 'rgba(0,0,0,0.4)', padding: '10px', borderRadius: '8px' }}><strong style={{ color: 'var(--text-primary)' }}>Standard:</strong> {extractedVehicle.eStd.toUpperCase().replace('BS', 'BS-')}</div>
+                                                </div>
+
+                                                {extractedVehicle.confidence < 75 && (
+                                                    <div style={{ marginTop: '16px', color: 'var(--severity-high)', fontSize: '0.9rem', display: 'flex', gap: '8px', alignItems: 'flex-start', background: 'rgba(255, 159, 10, 0.1)', padding: '12px', borderRadius: '8px' }}>
+                                                        <span>⚠️</span> <span style={{ lineHeight: 1.4 }}>We had to guess some details. If this looks off, try adding the year and fuel type to your search (e.g., 'Honda City 2018 Petrol') or fix it manually below.</span>
+                                                    </div>
+                                                )}
+                                            </div>
 
                                             <div style={{ display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap' }}>
                                                 <button
@@ -342,12 +454,12 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                             </div>
                                         </>
                                     ) : (
-                                        <div style={{ background: 'rgba(0,0,0,0.2)', padding: '24px', borderRadius: '12px', textAlign: 'left', animation: 'fadeInUp 0.3s ease' }}>
-                                            <h4 style={{ marginBottom: '16px', color: 'var(--text-primary)', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>Manual Correction</h4>
+                                        <div style={{ background: 'rgba(0,0,0,0.4)', padding: '24px', borderRadius: '12px', textAlign: 'left', animation: 'fadeInUp 0.3s ease' }}>
+                                            <h4 style={{ marginBottom: '16px', color: 'var(--text-primary)', borderBottom: '1px solid var(--glass-border)', paddingBottom: '8px' }}>Manual Correction</h4>
                                             <div className="form-row" style={{ marginBottom: '16px' }}>
                                                 <div className="form-group">
                                                     <label>Vehicle Type</label>
-                                                    <select value={inputs.vType} onChange={e => updateInput('vType', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                                    <select value={inputs.vType} onChange={e => updateInput('vType', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--glass-border)' }}>
                                                         <option value="2wheeler">2-Wheeler</option>
                                                         <option value="car">Car (Hatchback/Sedan)</option>
                                                         <option value="suv">SUV / MUV</option>
@@ -357,7 +469,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                                 </div>
                                                 <div className="form-group">
                                                     <label>Fuel Type</label>
-                                                    <select value={inputs.fType} onChange={e => updateInput('fType', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                                    <select value={inputs.fType} onChange={e => updateInput('fType', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--glass-border)' }}>
                                                         <option value="petrol">Petrol</option>
                                                         <option value="diesel">Diesel</option>
                                                         <option value="cng">CNG/LPG</option>
@@ -369,7 +481,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                             <div className="form-row" style={{ marginBottom: '24px' }}>
                                                 <div className="form-group">
                                                     <label>Emission Standard</label>
-                                                    <select value={inputs.eStd} onChange={e => updateInput('eStd', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                                    <select value={inputs.eStd} onChange={e => updateInput('eStd', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--glass-border)' }}>
                                                         <option value="bs2">BS-II (Pre 2005)</option>
                                                         <option value="bs3">BS-III (2005–2010)</option>
                                                         <option value="bs4">BS-IV (2010–2020)</option>
@@ -378,7 +490,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                                 </div>
                                                 <div className="form-group">
                                                     <label>Engine Size</label>
-                                                    <select value={inputs.eSize} onChange={e => updateInput('eSize', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                                    <select value={inputs.eSize} onChange={e => updateInput('eSize', e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '6px', background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--glass-border)' }}>
                                                         <option value="small">Small (&lt;1.2L)</option>
                                                         <option value="medium">Medium (1.2–2.0L)</option>
                                                         <option value="large">Large (&gt;2.0L)</option>
@@ -388,7 +500,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
 
                                             <div style={{ display: 'flex', gap: '16px', justifyContent: 'flex-end' }}>
                                                 <button type="button" className="action-btn btn-secondary" onClick={() => setIsEditingSpecs(false)} style={{ padding: '10px 20px' }}>Cancel</button>
-                                                <button type="button" className="action-btn" onClick={() => setStep(2)} style={{ padding: '10px 20px', background: 'var(--accent-green)', color: '#000' }}>Confirm Fix & Continue</button>
+                                                <button type="button" className="action-btn" onClick={() => setStep(2)} style={{ padding: '10px 20px', background: 'var(--accent-green)', color: 'var(--bg-dark)' }}>Confirm Fix & Continue</button>
                                             </div>
                                         </div>
                                     )}
@@ -404,10 +516,6 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                     <label>Current Daily Distance (km)</label>
                                     <input type="number" min="1" max="1000" value={inputs.dTot} onChange={e => updateInput('dTot', parseFloat(e.target.value))} />
                                 </div>
-                                <div className="form-group">
-                                    <label>Trips per Day</label>
-                                    <input type="number" min="1" max="50" value={inputs.trips} onChange={e => updateInput('trips', parseInt(e.target.value))} />
-                                </div>
                             </div>
 
                             <div className="slider-group">
@@ -417,7 +525,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 </div>
                                 <input type="range" className="range-slider" min="0" max="100" value={inputs.cityPct}
                                     onChange={e => updateInput('cityPct', parseInt(e.target.value))}
-                                    style={{ background: `linear-gradient(to right, #00e676 ${inputs.cityPct}%, rgba(255,255,255,0.1) ${inputs.cityPct}%)` }}
+                                    style={{ background: `linear-gradient(to right, #00e676 ${inputs.cityPct}%, var(--glass-border) ${inputs.cityPct}%)` }}
                                 />
                                 <div className="slider-labels">
                                     <span>100% Highway</span>
@@ -443,6 +551,25 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 </div>
                             </div>
 
+                            <div className="form-row" style={{ marginTop: '16px' }}>
+                                <div className="form-group">
+                                    <label>AC Usage</label>
+                                    <select value={inputs.acUsage} onChange={e => updateInput('acUsage', e.target.value)} style={{ padding: '10px', borderRadius: '6px', background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--glass-border)', width: '100%' }}>
+                                        <option value="None">None (0%)</option>
+                                        <option value="Moderate">Moderate (50%)</option>
+                                        <option value="Heavy">Heavy (100%)</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label>Traffic Intensity</label>
+                                    <select value={inputs.trafficIntensity} onChange={e => updateInput('trafficIntensity', e.target.value)} style={{ padding: '10px', borderRadius: '6px', background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--glass-border)', width: '100%' }}>
+                                        <option value="Low">Low (Free Flow)</option>
+                                        <option value="Medium">Medium</option>
+                                        <option value="High">High (Stop & Go)</option>
+                                    </select>
+                                </div>
+                            </div>
+
                             <div className="btn-row">
                                 <button type="button" className="action-btn btn-secondary" onClick={() => setStep(1)}>&larr; Back</button>
                                 <button type="button" className="action-btn" onClick={() => setStep(3)}>Next: Condition &rarr;</button>
@@ -452,42 +579,16 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
 
                     {step === 3 && (
                         <div className="form-step active">
-                            <div className="form-row">
+                            <div className="form-row" style={{ marginBottom: '24px' }}>
                                 <div className="form-group">
                                     <label>Vehicle Age (years)</label>
                                     <input type="number" min="0" max="30" value={inputs.age} onChange={e => updateInput('age', parseInt(e.target.value))} />
-                                </div>
-                                <div className="form-group">
-                                    <label>Maintenance Level</label>
-                                    <select value={inputs.maint} onChange={e => updateInput('maint', e.target.value)}>
-                                        <option value="good">Well Maintained</option>
-                                        <option value="average">Average</option>
-                                        <option value="poor">Poorly Maintained</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Climate Zone</label>
-                                <div className="radio-group">
-                                    <div className="radio-option">
-                                        <input type="radio" id="climateCool" checked={inputs.climate === 'cool'} readOnly />
-                                        <label htmlFor="climateCool" onClick={() => updateInput('climate', 'cool')}>❄️ Cool</label>
-                                    </div>
-                                    <div className="radio-option">
-                                        <input type="radio" id="climateMod" checked={inputs.climate === 'moderate'} readOnly />
-                                        <label htmlFor="climateMod" onClick={() => updateInput('climate', 'moderate')}>🌤️ Moderate</label>
-                                    </div>
-                                    <div className="radio-option">
-                                        <input type="radio" id="climateHot" checked={inputs.climate === 'hot'} readOnly />
-                                        <label htmlFor="climateHot" onClick={() => updateInput('climate', 'hot')}>🔥 Hot</label>
-                                    </div>
                                 </div>
                             </div>
 
                             <div className="btn-row">
                                 <button type="button" className="action-btn btn-secondary" onClick={() => setStep(2)}>&larr; Back</button>
-                                <button type="submit" className="action-btn">
+                                <button type="submit" className="action-btn" disabled={isSearching}>
                                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                                         <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
                                     </svg>
@@ -497,7 +598,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                         </div>
                     )}
                 </form>
-            </div>
+            </div >
 
             {results && (() => {
                 const rating = getRating(results);
@@ -511,7 +612,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
 
                 const nat_avg = { CO2: 4.5, PM25: 0.8 };
                 const co2_diff = ((results.total.CO2 - nat_avg.CO2) / nat_avg.CO2) * 100;
-                const co2_color = co2_diff <= 0 ? '#00e676' : '#ff1744';
+                const co2_color = co2_diff <= 0 ? 'var(--accent-green)' : 'var(--severity-critical)';
 
                 // Display formatting for City vs Hwy
                 const city_co2_kg = inputs.fType === 'ev' ? (results.total.CO2 * (c_pct / 100)).toFixed(1) : ((results.adjEF.city.CO2 * results.d_city) / 1000).toFixed(1);
@@ -574,16 +675,16 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                             <div className="breakdown-card">
                                 <div className="breakdown-title">📊 Emission Source Breakdown</div>
                                 <div className="stacked-bar">
-                                    <div className="bar-segment" style={{ width: `${ex_pct}%`, background: '#ff1744' }} title="Exhaust"></div>
-                                    <div className="bar-segment" style={{ width: `${nex_pct}%`, background: '#7c4dff' }} title="Non-Exhaust"></div>
+                                    <div className="bar-segment" style={{ width: `${ex_pct}%`, background: 'var(--severity-critical)' }} title="Exhaust"></div>
+                                    <div className="bar-segment" style={{ width: `${nex_pct}%`, background: 'var(--accent-blue)' }} title="Non-Exhaust"></div>
                                 </div>
                                 <div>
                                     <div className="breakdown-item">
-                                        <span className="breakdown-label"><span className="breakdown-dot" style={{ background: '#ff1744' }}></span> Tailpipe Exhaust</span>
+                                        <span className="breakdown-label"><span className="breakdown-dot" style={{ background: 'var(--severity-critical)' }}></span> Tailpipe Exhaust</span>
                                         <span className="breakdown-val">{(results.e_hot.PM25 + results.e_cold.PM25).toFixed(2)} g</span>
                                     </div>
                                     <div className="breakdown-item">
-                                        <span className="breakdown-label"><span className="breakdown-dot" style={{ background: '#7c4dff' }}></span> Tyre/Brake Wear</span>
+                                        <span className="breakdown-label"><span className="breakdown-dot" style={{ background: 'var(--accent-blue)' }}></span> Tyre/Brake Wear</span>
                                         <span className="breakdown-val">{results.e_non_exhaust.PM25.toFixed(2)} g</span>
                                     </div>
                                 </div>
@@ -591,61 +692,125 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                             <div className="breakdown-card">
                                 <div className="breakdown-title">🛣️ City vs Highway</div>
                                 <div className="stacked-bar">
-                                    <div className="bar-segment" style={{ width: `${c_pct}%`, background: '#00e676' }} title="City"></div>
-                                    <div className="bar-segment" style={{ width: `${h_pct}%`, background: '#00b0ff' }} title="Highway"></div>
+                                    <div className="bar-segment" style={{ width: `${c_pct}%`, background: 'var(--accent-green)' }} title="City"></div>
+                                    <div className="bar-segment" style={{ width: `${h_pct}%`, background: 'var(--accent-cyan)' }} title="Highway"></div>
                                 </div>
                                 <div>
                                     <div className="breakdown-item">
-                                        <span className="breakdown-label"><span className="breakdown-dot" style={{ background: '#00e676' }}></span> City Driving</span>
+                                        <span className="breakdown-label"><span className="breakdown-dot" style={{ background: 'var(--accent-green)' }}></span> City Driving</span>
                                         <span className="breakdown-val">{city_co2_kg} kg</span>
                                     </div>
                                     <div className="breakdown-item">
-                                        <span className="breakdown-label"><span className="breakdown-dot" style={{ background: '#00b0ff' }}></span> Highway Driving</span>
+                                        <span className="breakdown-label"><span className="breakdown-dot" style={{ background: 'var(--accent-cyan)' }}></span> Highway Driving</span>
                                         <span className="breakdown-val">{hwy_co2_kg} kg</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="comparison-section">
-                            <div className="comparison-title">📈 Comparison with National Average</div>
+                        <div className="comparison-section" style={{ background: co2_diff > 0 ? 'rgba(255, 69, 58, 0.05)' : 'rgba(0, 200, 150, 0.05)', padding: '20px', borderRadius: '12px', border: `1px solid ${co2_diff > 0 ? 'rgba(255, 69, 58, 0.2)' : 'rgba(0, 200, 150, 0.2)'}` }}>
+                            <div className="comparison-title" style={{ color: co2_diff > 0 ? 'var(--severity-critical)' : 'var(--accent-green)' }}>
+                                {co2_diff > 0 ? '⚠️ High Emission Profile' : '✅ Better than National Average'}
+                            </div>
                             <div>
                                 <div className="comparison-row" style={{ display: 'flex', alignItems: 'center', margin: '8px 0', gap: '12px' }}>
                                     <div className="comparison-label" style={{ width: '80px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>You (CO₂)</div>
-                                    <div className="comparison-bar-track" style={{ flex: 1, height: '8px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px' }}>
-                                        <div className="comparison-bar-fill" style={{ height: '100%', borderRadius: '4px', width: `${Math.min(results.total.CO2 * 10, 100)}%`, background: co2_color }}></div>
+                                    <div className="comparison-bar-track" style={{ flex: 1, height: '10px', background: 'rgba(255,255,255,0.04)', borderRadius: '6px' }}>
+                                        <div className="comparison-bar-fill" style={{ height: '100%', borderRadius: '6px', width: `${Math.min(results.total.CO2 * 10, 100)}%`, background: co2_color, transition: 'width 1s ease-in-out' }}></div>
                                     </div>
-                                    <div className="comparison-value" style={{ width: '60px', textAlign: 'right', fontWeight: 700, fontSize: '0.9rem' }}>{results.total.CO2.toFixed(1)} kg</div>
+                                    <div className="comparison-value" style={{ width: '60px', textAlign: 'right', fontWeight: 700, fontSize: '0.95rem', color: co2_color }}>{results.total.CO2.toFixed(1)} kg</div>
                                 </div>
-                                <div className="comparison-row" style={{ display: 'flex', alignItems: 'center', margin: '8px 0', gap: '12px' }}>
+                                <div className="comparison-row" style={{ display: 'flex', alignItems: 'center', margin: '12px 0 8px 0', gap: '12px' }}>
                                     <div className="comparison-label" style={{ width: '80px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Nat'l Avg</div>
-                                    <div className="comparison-bar-track" style={{ flex: 1, height: '8px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px' }}>
+                                    <div className="comparison-bar-track" style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.04)', borderRadius: '4px' }}>
                                         <div className="comparison-bar-fill" style={{ height: '100%', borderRadius: '4px', width: `${nat_avg.CO2 * 10}%`, background: 'rgba(255,255,255,0.3)' }}></div>
                                     </div>
-                                    <div className="comparison-value" style={{ width: '60px', textAlign: 'right', fontWeight: 700, fontSize: '0.9rem' }}>{nat_avg.CO2} kg</div>
+                                    <div className="comparison-value" style={{ width: '60px', textAlign: 'right', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{nat_avg.CO2} kg</div>
                                 </div>
-                                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.5rem', textAlign: 'right' }}>
-                                    {Math.abs(co2_diff).toFixed(0)}% {co2_diff > 0 ? 'higher' : 'lower'} than average
+                                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.5rem', textAlign: 'right' }}>
+                                    Your emissions are <strong style={{ color: co2_color }}>{Math.abs(co2_diff).toFixed(0)}% {co2_diff > 0 ? 'higher' : 'lower'}</strong> than average.
                                 </p>
                             </div>
                         </div>
 
-                        <div className="eco-tips">
-                            <div className="eco-tips-title">💡 Recommendations to Reduce Emissions</div>
-                            <div>
-                                {inputs.fType !== 'ev' && inputs.tripLen === 'short' && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">🚶</span><span style={{ fontSize: '0.9rem' }}>Your trips are short. A cold engine burns more fuel. Consider walking or cycling for trips under 3km.</span></div>}
-                                {inputs.fType !== 'ev' && (inputs.maint === 'poor' || inputs.age > 10) && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">🔧</span><span style={{ fontSize: '0.9rem' }}>Your vehicle&apos;s age/condition is adding ~30% more emissions. An engine tune-up and filter change can drastically lower PM and CO.</span></div>}
-                                {inputs.fType !== 'ev' && (inputs.eStd === 'bs2' || inputs.eStd === 'bs3') && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">♻️</span><span style={{ fontSize: '0.9rem' }}>Older BS2/BS3 engines lack modern catalysts. Consider the Government Scrappage Policy for incentives on a new BS6/EV.</span></div>}
-                                {inputs.fType === 'ev' && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">⚡</span><span style={{ fontSize: '0.9rem' }}>Great job driving an EV! To reduce non-exhaust PM2.5 (tyre wear), ensure tyres are properly inflated and utilize regenerative braking instead of hard stops.</span></div>}
-                                {inputs.cityPct > 70 && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">🚦</span><span style={{ fontSize: '0.9rem' }}>High city driving means more idling. Turn off your engine at signals longer than 30 seconds to save fuel and cut local NOx.</span></div>}
+                        <div className="eco-tips" style={{ position: 'relative', overflow: 'hidden' }}>
+                            <div className="eco-tips-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                ✨ AI Personalized Recommendations
                             </div>
+
+                            {isLoadingRecommendations ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '20px 0', alignItems: 'center' }}>
+                                    <div className="spinner" style={{ width: '24px', height: '24px', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: 'var(--accent-green)', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                                    <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Emission-Sense Advisor is analyzing your driving patterns...</div>
+                                </div>
+                            ) : recommendations && recommendations.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', animation: 'fadeIn 0.5s ease' }}>
+                                    {recommendations.map((rec, i) => (
+                                        <div key={i} className="eco-tip" style={{ marginBottom: '8px', display: 'flex', gap: '12px', padding: '16px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                                            <span className="eco-tip-icon" style={{ fontSize: '1.4rem' }}>{['🎯', '🔧', '🌍'][i] || '💡'}</span>
+                                            <div>
+                                                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>{rec.title}</div>
+                                                <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{rec.description}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div>
+                                    {inputs.fType !== 'ev' && inputs.tripLen === 'short' && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">🚶</span><span style={{ fontSize: '0.9rem' }}>Your trips are short. A cold engine burns more fuel. Consider walking or cycling for trips under 3km.</span></div>}
+                                    {inputs.fType !== 'ev' && (inputs.age > 10) && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">🔧</span><span style={{ fontSize: '0.9rem' }}>Your vehicle&apos;s age is adding ~30% more emissions. An engine tune-up and filter change can drastically lower PM and CO.</span></div>}
+                                    {inputs.fType !== 'ev' && (inputs.eStd === 'bs2' || inputs.eStd === 'bs3') && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">♻️</span><span style={{ fontSize: '0.9rem' }}>Older BS2/BS3 engines lack modern catalysts. Consider upgrading to a new BS6/EV.</span></div>}
+                                    {inputs.fType === 'ev' && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">⚡</span><span style={{ fontSize: '0.9rem' }}>Great job driving an EV! To reduce non-exhaust PM2.5 (tyre wear), ensure tyres are properly inflated and utilize regenerative braking instead of hard stops.</span></div>}
+                                    {inputs.cityPct > 70 && <div className="eco-tip" style={{ marginBottom: '12px', display: 'flex', gap: '12px' }}><span className="eco-tip-icon">🚦</span><span style={{ fontSize: '0.9rem' }}>High city driving heavily increases your emissions. Try combining trips to reduce cold starts and traffic penalties.</span></div>}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="glass-card" style={{ marginTop: '24px', padding: '24px', borderRadius: '12px', border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.02)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => setShowTransparency(!showTransparency)}>
+                                <h3 style={{ margin: 0, fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '1.4rem' }}>🧮</span> See how we calculated this
+                                </h3>
+                                <span>{showTransparency ? '▲' : '▼'}</span>
+                            </div>
+                            {showTransparency && (
+                                <div style={{ marginTop: '20px', fontSize: '0.95rem', color: 'var(--text-secondary)', lineHeight: 1.6, animation: 'fadeIn 0.3s ease' }}>
+                                    <p style={{ marginBottom: '12px' }}>This estimation is powered by advanced IPCC and COPERT methodological models adapted for Indian driving conditions.</p>
+
+                                    <h4 style={{ color: 'var(--text-primary)', marginTop: '16px', marginBottom: '8px' }}>1. Base Emission Factors (Hot Emissions)</h4>
+                                    <div style={{ background: 'rgba(0,0,0,0.4)', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+                                        Based on your <strong>{inputs.eStd.toUpperCase()} {inputs.fType}</strong> vehicle engine ({results.adjEF?.city?.CO2?.toFixed(1) || 0} g/km City CO2 | {results.adjEF?.hwy?.CO2?.toFixed(1) || 0} g/km Hwy CO2).
+                                        <br />Modifiers Applied: Age Degradation Curve.
+                                    </div>
+
+                                    <h4 style={{ color: 'var(--text-primary)', marginTop: '16px', marginBottom: '8px' }}>2. Real Driving Condition Penalties</h4>
+                                    <div style={{ background: 'rgba(0,0,0,0.4)', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+                                        <strong>Traffic Intensity ({inputs.trafficIntensity}):</strong> Applies a multiplicative penalty strictly scaling NOx and Brake/Tyre PM.<br />
+                                        <strong>Short Trip Engine Cold-Start:</strong> You selected '{inputs.tripLen}' length trips. If extreme cold-starts exist, excess unburned hydrocarbons are modeled at up to 3x standard rate.
+                                    </div>
+
+                                    <h4 style={{ color: 'var(--text-primary)', marginTop: '16px', marginBottom: '8px' }}>3. Gemini Micro-Specification Boost</h4>
+                                    <div style={{ background: 'rgba(0,0,0,0.4)', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+                                        Through the exact model identification, the calculations override generic class defaults in favor of exact constraints whenever possible:
+                                        {extractedVehicle?.kerbWeightKg ? ` Exact Weight Factor (${extractedVehicle.kerbWeightKg}kg),` : ''}
+                                        {extractedVehicle?.turbocharged ? ` Turbocharger Spool Factor,` : ''}
+                                        {extractedVehicle?.fuelEfficiencyKmpl ? ` Exact ARAI Fuel Efficiency Conversion (${extractedVehicle.fuelEfficiencyKmpl} km/L)` : ` Default efficiency estimation`}
+                                    </div>
+
+                                    <h4 style={{ color: 'var(--text-primary)', marginTop: '16px', marginBottom: '8px' }}>4. Non-Exhaust Emissions</h4>
+                                    <div style={{ background: 'rgba(0,0,0,0.4)', padding: '12px', borderRadius: '8px' }}>
+                                        Particulate Matter (PM2.5) isn't just exhaust—tyre compounding and braking friction.
+                                        This contributes exactly {results.e_non_exhaust?.PM25?.toFixed(2) || 0} grams.
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="history-section">
                             <div className="history-title">🕐 Calculation History</div>
                             <ul className="history-list">
                                 {history.length === 0 ? <li className="history-empty">No previous calculations</li> : history.map((h, i) => (
-                                    <li className="history-item" key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                    <li className="history-item" key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--glass-bg)' }}>
                                         <span className="history-vehicle" style={{ fontWeight: 600 }}>{h.veh}</span>
                                         <span className="history-co2" style={{ color: 'var(--accent-green)', fontWeight: 700 }}>{h.co2} kg CO₂</span>
                                         <span className="history-date" style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{h.date}</span>
@@ -655,7 +820,8 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                         </div>
                     </div>
                 );
-            })()}
-        </section>
+            })()
+            }
+        </section >
     );
 }
