@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { PollutionProvider } from '@/components/PollutionContext';
+import GoogleTranslate from '@/components/GoogleTranslate';
 
 export const metadata: Metadata = {
   title: 'Emission-Sense — Vehicle Emission Calculator',
@@ -22,7 +24,10 @@ export default function RootLayout({
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossOrigin="" async></script>
       </head>
       <body>
-        {children}
+        <PollutionProvider>
+          {children}
+        </PollutionProvider>
+        <GoogleTranslate />
       </body>
     </html>
   );

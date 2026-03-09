@@ -40,6 +40,7 @@ Return ONLY a valid JSON object. No markdown, no "here is the data", no backtick
 ### SCHEMA:
 {
   "name": "Full Model Name + Year (e.g., 'Maruti Suzuki Swift 2021')",
+  "year": number | null,
   "vehicle_category": "2wheeler | car | suv | bus | truck",
   "fuel_type": "petrol | diesel | cng | hybrid | ev",
   "emission_standard": "bs2 | bs3 | bs4 | bs6",
@@ -150,6 +151,7 @@ Return ONLY a valid JSON object. No markdown, no "here is the data", no backtick
 
         const responsePayload = {
             name: parsedData.name || 'Unknown Vehicle',
+            year: parsedData.year || null,
             vType: valid_vType.includes(parsedData.vehicle_category) ? parsedData.vehicle_category : 'car',
             fType: valid_fType.includes(parsedData.fuel_type) ? parsedData.fuel_type : 'petrol',
             eStd: valid_eStd.includes(parsedData.emission_standard) ? parsedData.emission_standard : 'bs4',

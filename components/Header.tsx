@@ -12,8 +12,8 @@ export default function Header() {
                         <circle cx="20" cy="10" r="2" fill="url(#logoGrad)" opacity="0.6" />
                         <defs>
                             <linearGradient id="logoGrad" x1="0" y1="0" x2="40" y2="40">
-                                <stop offset="0%" stopColor="#00e676" />
-                                <stop offset="100%" stopColor="#00b0ff" />
+                                <stop offset="0%" stopColor="#10B981" />
+                                <stop offset="100%" stopColor="#3B82F6" />
                             </linearGradient>
                         </defs>
                     </svg>

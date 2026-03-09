@@ -9,7 +9,7 @@ export const FUEL_CO2_FACTORS = {
     DIESEL_KG_PER_L: 2.6533,
     LPG_KG_PER_L: 1.57,
     CNG_KG_PER_KG: 2.75,
-    ELECTRIC_INDIA_KG_PER_KWH: 0.71, // 0.71 kg CO2/kWh
+    ELECTRIC_INDIA_KG_PER_KWH: 0.727, // CEA v20.0 (Dec 2024): 0.727 kg CO2/kWh weighted avg
     ELECTRIC_US_KG_PER_KWH: 0.39,
 };
 
@@ -28,8 +28,10 @@ const EV_EFFICIENCY_KWH_PER_KM: Record<string, number> = {
  */
 export function calculateEVGridCO2(vType: string, distanceKm: number, gridFactorKgPerKwh: number = FUEL_CO2_FACTORS.ELECTRIC_INDIA_KG_PER_KWH): number {
     const kwhPerKm = EV_EFFICIENCY_KWH_PER_KM[vType] || 0.15;
-    // kg / km * distance -> total kg -> * 1000 -> g
-    return kwhPerKm * gridFactorKgPerKwh * distanceKm * 1000;
+    const chargingEfficiency = 0.90; // AC charging ~90% efficient (Grid_Emissions.md)
+    // Energy pulled from grid = consumption / efficiency
+    // Then multiply by grid CO2 factor and convert kg->g
+    return (kwhPerKm / chargingEfficiency) * gridFactorKgPerKwh * distanceKm * 1000;
 }
 
 // --- AGE DETERIORATION FACTOR ---
@@ -46,16 +48,31 @@ export function getAgeDeteriorationFactor(mileageKm: number): number {
     return 2.2;
 }
 
+/**
+ * CO2-specific age deterioration — fuel efficiency degrades at a much lower rate
+ * than catalyst-dependent toxic pollutants. Research caps this at ~5%.
+ * (Age_Deterioration_Factor.md line 108, Fuel_Efficiency_Override.md line 56)
+ */
+export function getAgeDeteriorationFactorCO2(mileageKm: number): number {
+    if (mileageKm <= 50000) return 1.0;
+    // Linear scale from 1.0 at 50k km to 1.05 at 200k km, then cap
+    if (mileageKm <= 200000) return 1.0 + 0.05 * (mileageKm - 50000) / 150000;
+    return 1.05;
+}
+
 // Estimate mileage from age and daily distance
 export function estimateMileage(ageYears: number, dTotDaily: number): number {
     return ageYears * (dTotDaily * 365);
 }
 
 // --- MAINTENANCE & GROSS EMITTER FACTOR ---
+// Maintenance_Factor.md research values — "Poor" = Gross Emitter model
+// CO2 factors added (1.0/1.05/1.15) per research: poor maintenance
+// reduces fuel efficiency by 5-15%, but doesn't cause 400%+ spikes
 export const MAINTENANCE_MULTIPLIERS = {
-    good: { NOx: 1.0, CO: 1.0, PM25: 1.0, HC: 1.0 },
-    average: { NOx: 1.3, CO: 1.5, PM25: 1.25, HC: 1.5 },
-    poor: { NOx: 2.5, CO: 3.5, PM25: 2.0, HC: 3.5 } // Gross Emitter Model
+    good:    { NOx: 1.0, CO: 1.0, PM25: 1.0, HC: 1.0, CO2: 1.0 },
+    average: { NOx: 1.2, CO: 1.5, PM25: 1.5, HC: 1.5, CO2: 1.05 },
+    poor:    { NOx: 3.0, CO: 4.0, PM25: 8.0, HC: 5.0, CO2: 1.15 } // Gross Emitter
 };
 
 // --- COLD START EXCESS ---
