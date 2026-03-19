@@ -31,6 +31,17 @@ export interface CalculationInput {
     acUsage?: 'None' | 'Moderate' | 'Heavy';
     trafficIntensity?: 'Low' | 'Medium' | 'High';
     city?: string;
+
+    // Service & Health fields
+    lastServiceDate?: string;
+    lastOilChangeDate?: string;
+    lastAirFilterDate?: string;
+    lastPucDate?: string;
+    engineCondition?: 'good' | 'average' | 'poor';
+    originalKmpl?: number | null;
+    currentKmpl?: number | null;
+    smokeLevel?: 'none' | 'low' | 'high';
+    engineNoise?: 'normal' | 'rough';
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -232,7 +243,18 @@ export function calculateEmissions(inputs: CalculationInput) {
     const {
         vType, fType, eStd, dTot, cityPct, age, maint,
         turbocharged, fuelInjection, transmission, fuelEfficiencyKmpl, kerbWeightKg,
-        loadFactor = 1, acUsage = 'Moderate', trafficIntensity = 'Medium'
+        acUsage = 'None',
+        trafficIntensity = 'Medium',
+        loadFactor = 1.0,
+        lastServiceDate = '',
+        lastOilChangeDate = '',
+        lastAirFilterDate = '',
+        lastPucDate = '',
+        engineCondition = 'good',
+        originalKmpl = null,
+        currentKmpl = null,
+        smokeLevel = 'none',
+        engineNoise = 'normal'
     } = inputs;
     const hwyPct = 100 - cityPct;
 
@@ -385,14 +407,58 @@ export function calculateEmissions(inputs: CalculationInput) {
         else if (acUsage === 'Moderate') finalCO2 *= 1.08;
     }
 
+    // 9. APPLY SERVICE & CONDITION MULTIPLIERS
+    let co_mult = 1;
+    let hc_mult = 1;
+    let co2_mult = 1;
+    let nox_mult = 1;
+    let pm25_mult = 1;
+
+    // Only apply if it's not an EV
+    if (fType !== 'ev') {
+        const daysSince = (dateStr: string) => {
+            if (!dateStr) return null;
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return null;
+            return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+        };
+
+        const dService = daysSince(lastServiceDate);
+        const dOil = daysSince(lastOilChangeDate);
+        const dAirFilter = daysSince(lastAirFilterDate);
+        const dPUC = daysSince(lastPucDate);
+
+        const SERVICE_THRESHOLD = 180;
+        const OIL_THRESHOLD = 120;
+        const AIRFILTER_THRESHOLD = 270;
+        const PUC_THRESHOLD = 180;
+
+        const serviceOverdueMonths = dService ? Math.max(0, (dService - SERVICE_THRESHOLD) / 30) : 0;
+        const oilOverdueMonths = dOil ? Math.max(0, (dOil - OIL_THRESHOLD) / 30) : 0;
+        const airFilterOverdueIntervals = dAirFilter ? Math.max(0, (dAirFilter - AIRFILTER_THRESHOLD) / 90) : 0;
+        const pucOverdue3Months = dPUC ? dPUC > PUC_THRESHOLD + 90 : false;
+
+        const mileageDrop = originalKmpl && currentKmpl && originalKmpl > 0 && currentKmpl > 0 && currentKmpl < originalKmpl
+            ? (originalKmpl - currentKmpl) / originalKmpl
+            : 0;
+
+        co_mult = 1 + Math.min(serviceOverdueMonths * 0.04, 0.40) + Math.min(oilOverdueMonths * 0.05, 0.30) + (pucOverdue3Months ? 0.20 : 0);
+        hc_mult = 1 + Math.min(serviceOverdueMonths * 0.02, 0.30) + (pucOverdue3Months ? 0.15 : 0);
+        co2_mult = 1 + Math.min(airFilterOverdueIntervals * 0.03, 0.15) + Math.min(oilOverdueMonths * 0.02, 0.10) + mileageDrop;
+        nox_mult = 1 + (engineNoise === 'rough' ? 0.15 : 0) + Math.min(serviceOverdueMonths * 0.02, 0.20);
+        const engineCondFactor = engineCondition === 'good' ? 1.0 : engineCondition === 'average' ? 1.3 : 1.8;
+        const smokeFactor = smokeLevel === 'none' ? 1.0 : smokeLevel === 'low' ? 1.3 : 2.2;
+        pm25_mult = engineCondFactor * smokeFactor;
+    }
+
     const total = {
-        CO2: finalCO2,
-        NOx: e_hot.NOx + e_cold.NOx,
-        PM25: e_hot.PM25 + e_cold.PM25 + e_non_exhaust.PM25,
-        CO: e_hot.CO + e_cold.CO,
-        HC: e_hot.HC + e_cold.HC + e_evap.HC
+        CO2: finalCO2 * co2_mult,
+        NOx: (e_hot.NOx + e_cold.NOx) * nox_mult,
+        PM25: (e_hot.PM25 + e_cold.PM25 + e_non_exhaust.PM25) * pm25_mult,
+        CO: (e_hot.CO + e_cold.CO) * co_mult,
+        HC: (e_hot.HC + e_cold.HC + e_evap.HC) * hc_mult
     };
 
-    return { total, e_hot, e_cold, e_non_exhaust, e_evap, d_city, d_hwy, d_cold_total, adjEF, fType };
+    return { total, e_hot, e_cold, e_non_exhaust, e_evap, d_city, d_hwy, d_cold_total, adjEF, fType, serviceMultipliers: { co_mult, hc_mult, co2_mult, nox_mult, pm25_mult } };
 }
 

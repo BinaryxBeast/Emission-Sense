@@ -4,7 +4,6 @@ import Header from '@/components/Header';
 import EmissionCalculator from '@/components/EmissionCalculator';
 
 export default function Home() {
-
   return (
     <>
       {/* Ambient pollution orb — reacts to theme-* class on html */}
@@ -40,4 +39,3 @@ export default function Home() {
     </>
   );
 }
-
