@@ -933,11 +933,11 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 {co2_diff > 0 ? <><MatIcon name="warning" size={18} /> Above National Average</> : <><MatIcon name="check_circle" size={18} filled /> Below National Average</>} — CO₂ Comparison
                             </div>
                             {[
-                                { label: 'You (Today)', val: results.total.CO2, max: 10, color: co2_color, display: `${results.total.CO2.toFixed(1)} kg` },
-                                { label: "Nat'l Avg", val: nat_avg.CO2, max: 10, color: 'rgba(255,255,255,0.3)', display: `${nat_avg.CO2} kg` },
-                                { label: <><MatIcon name="bolt" size={16} /> EV Ref.</>, val: ev_ref, max: 10, color: '#3B82F6', display: `${ev_ref} kg` },
+                                { key: 'user', label: 'You (Today)', val: results.total.CO2, max: 10, color: co2_color, display: `${results.total.CO2.toFixed(1)} kg` },
+                                { key: 'avg', label: "Nat'l Avg", val: nat_avg.CO2, max: 10, color: 'rgba(255,255,255,0.3)', display: `${nat_avg.CO2} kg` },
+                                { key: 'ev', label: <><MatIcon name="bolt" size={16} /> EV Ref.</>, val: ev_ref, max: 10, color: '#3B82F6', display: `${ev_ref} kg` },
                             ].map(row => (
-                                <div className="comparison-row" key={row.label}>
+                                <div className="comparison-row" key={row.key}>
                                     <div className="comparison-label">{row.label}</div>
                                     <div className="comparison-bar-track">
                                         <div className="comparison-bar-fill" style={{ width: `${Math.min(row.val * 10, 100)}%`, background: row.color }} />

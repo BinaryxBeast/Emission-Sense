@@ -3,18 +3,20 @@ import React from 'react';
 interface MatIconProps {
   name: string;
   size?: number;
+  color?: string;
   filled?: boolean;
   style?: React.CSSProperties;
   className?: string;
 }
 
-export default function MatIcon({ name, size = 24, filled = false, style, className }: MatIconProps) {
+export default function MatIcon({ name, size = 24, color, filled = false, style, className }: MatIconProps) {
   return (
     <span
       translate="no"
       className={`material-symbols-rounded notranslate${className ? ' ' + className : ''}`}
       style={{
         fontSize: size,
+        color: color,
         lineHeight: 1,
         display: 'inline-flex',
         alignItems: 'center',
