@@ -239,6 +239,8 @@ const COLD_START_MULTIPLIERS: Record<string, Record<string, { petrol: number, di
     HC:   { temperate: { petrol: 5.00, diesel: 2.50 } }
 };
 
+import { calculateDaysSince } from './utils';
+
 export function calculateEmissions(inputs: CalculationInput) {
     const {
         vType, fType, eStd, dTot, cityPct, age, maint,
@@ -416,17 +418,11 @@ export function calculateEmissions(inputs: CalculationInput) {
 
     // Only apply if it's not an EV
     if (fType !== 'ev') {
-        const daysSince = (dateStr: string) => {
-            if (!dateStr) return null;
-            const d = new Date(dateStr);
-            if (isNaN(d.getTime())) return null;
-            return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
-        };
+        const dService = calculateDaysSince(lastServiceDate);
+        const dOil = calculateDaysSince(lastOilChangeDate);
+        const dAirFilter = calculateDaysSince(lastAirFilterDate);
+        const dPUC = calculateDaysSince(lastPucDate);
 
-        const dService = daysSince(lastServiceDate);
-        const dOil = daysSince(lastOilChangeDate);
-        const dAirFilter = daysSince(lastAirFilterDate);
-        const dPUC = daysSince(lastPucDate);
 
         const SERVICE_THRESHOLD = 180;
         const OIL_THRESHOLD = 120;
