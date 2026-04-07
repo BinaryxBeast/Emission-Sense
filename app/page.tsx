@@ -2,7 +2,6 @@
 
 import Header from '@/components/Header';
 import EmissionCalculator from '@/components/EmissionCalculator';
-import EmailReminders from '@/components/EmailReminders';
 
 export default function Home() {
   return (
@@ -16,8 +15,6 @@ export default function Home() {
         <main>
           <EmissionCalculator active={true} />
         </main>
-
-        <EmailReminders />
 
         <footer className="footer">
           <div className="footer-content">

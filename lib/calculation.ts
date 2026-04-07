@@ -424,24 +424,32 @@ export function calculateEmissions(inputs: CalculationInput) {
         const dPUC = calculateDaysSince(lastPucDate);
 
 
-        const SERVICE_THRESHOLD = 180;
-        const OIL_THRESHOLD = 120;
-        const AIRFILTER_THRESHOLD = 270;
+        // Indian standard service thresholds
+        // Oil Change: 90 days / ~5000 km (petrol SIAM standard); diesel owners typically 180d but we warn early
+        // Air Filter: 365 days / ~15,000 km (BS-VI recommendation)
+        // PUC: 180 days (6 months) — CMVR mandated renewal period
+        const OIL_THRESHOLD = 90;
+        const AIRFILTER_THRESHOLD = 365;
         const PUC_THRESHOLD = 180;
 
-        const serviceOverdueMonths = dService ? Math.max(0, (dService - SERVICE_THRESHOLD) / 30) : 0;
         const oilOverdueMonths = dOil ? Math.max(0, (dOil - OIL_THRESHOLD) / 30) : 0;
         const airFilterOverdueIntervals = dAirFilter ? Math.max(0, (dAirFilter - AIRFILTER_THRESHOLD) / 90) : 0;
-        const pucOverdue3Months = dPUC ? dPUC > PUC_THRESHOLD + 90 : false;
+        // PUC: penalty kicks in once expired (>180d); stricter at >270d (3 months late)
+        const pucExpired = dPUC ? dPUC > PUC_THRESHOLD : false;
+        const pucSeverely = dPUC ? dPUC > PUC_THRESHOLD + 90 : false;
 
         const mileageDrop = originalKmpl && currentKmpl && originalKmpl > 0 && currentKmpl > 0 && currentKmpl < originalKmpl
             ? (originalKmpl - currentKmpl) / originalKmpl
             : 0;
 
-        co_mult = 1 + Math.min(serviceOverdueMonths * 0.04, 0.40) + Math.min(oilOverdueMonths * 0.05, 0.30) + (pucOverdue3Months ? 0.20 : 0);
-        hc_mult = 1 + Math.min(serviceOverdueMonths * 0.02, 0.30) + (pucOverdue3Months ? 0.15 : 0);
+        // CO penalty: overdue oil + expired PUC
+        co_mult = 1 + Math.min(oilOverdueMonths * 0.05, 0.30) + (pucSeverely ? 0.20 : pucExpired ? 0.10 : 0);
+        // HC penalty: expired PUC only
+        hc_mult = 1 + (pucSeverely ? 0.15 : pucExpired ? 0.07 : 0);
+        // CO2 penalty: clogged air filter + overdue oil change (fuel inefficiency)
         co2_mult = 1 + Math.min(airFilterOverdueIntervals * 0.03, 0.15) + Math.min(oilOverdueMonths * 0.02, 0.10) + mileageDrop;
-        nox_mult = 1 + (engineNoise === 'rough' ? 0.15 : 0) + Math.min(serviceOverdueMonths * 0.02, 0.20);
+        // NOx penalty: engine roughness only (no service date card anymore)
+        nox_mult = 1 + (engineNoise === 'rough' ? 0.15 : 0);
         const engineCondFactor = engineCondition === 'good' ? 1.0 : engineCondition === 'average' ? 1.3 : 1.8;
         const smokeFactor = smokeLevel === 'none' ? 1.0 : smokeLevel === 'low' ? 1.3 : 2.2;
         pm25_mult = engineCondFactor * smokeFactor;

@@ -7,6 +7,7 @@ import { calculateEmissions, CalculationInput } from '../lib/calculation';
 import { usePollution } from './PollutionContext';
 import MatIcon from './MatIcon';
 import { calculateDaysSince, getISTTodayString, formatIndianDate } from '../lib/utils';
+import EmailReminders from './EmailReminders';
 
 // ── Icon Card Selector ──────────────────────────────────────────────────────
 function IconCardGroup({ cols, options, value, onChange }: {
@@ -115,6 +116,11 @@ function OverdueBadge({ days, threshold, penalties }: { days: number | null; thr
 }
 
 // ── Main Component ──────────────────────────────────────────────────────────
+// ── India Fuel Prices (₹/litre or ₹/kg for CNG, ₹/kWh for EV) ─────────────
+const DEFAULT_FUEL_PRICES: Record<string, number> = {
+    petrol: 96, diesel: 89, cng: 79, hybrid: 96, ev: 8
+};
+
 export default function EmissionCalculator({ active }: { active: boolean }) {
     const { setPollutionLevel } = usePollution();
     const [step, setStep] = useState(1);
@@ -126,6 +132,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
         lastServiceDate: '', lastOilChangeDate: '', lastAirFilterDate: '', lastPucDate: '',
         engineCondition: 'good', originalKmpl: null, currentKmpl: null, smokeLevel: 'none', engineNoise: 'normal'
     });
+    const [fuelPrices, setFuelPrices] = useState<Record<string, number>>(DEFAULT_FUEL_PRICES);
 
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -149,6 +156,11 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
     useEffect(() => {
         const saved = localStorage.getItem('emiHistory');
         if (saved) setHistory(JSON.parse(saved));
+        // Fetch live India fuel prices
+        fetch('/api/fuel-price')
+            .then(r => r.ok ? r.json() : null)
+            .then(data => { if (data) setFuelPrices(data); })
+            .catch(() => {/* use defaults */});
     }, []);
 
     // Live preview on step 2/3
@@ -165,10 +177,9 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
     const updateInput = (key: keyof CalculationInput, value: string | number) => {
         setInputs(prev => {
             const next = { ...prev, [key]: value };
-            if (key === 'lastServiceDate' && value) {
-                if (!next.lastOilChangeDate) next.lastOilChangeDate = value as string;
+            // When oil change date is entered, auto-populate air filter if empty
+            if (key === 'lastOilChangeDate' && value) {
                 if (!next.lastAirFilterDate) next.lastAirFilterDate = value as string;
-                if (!next.lastPucDate) next.lastPucDate = value as string;
             }
             return next;
         });
@@ -248,8 +259,12 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         name: extractedVehicle.name, fuel_type: inputs.fType, emission_standard: inputs.eStd,
-                        engine_size: inputs.eSize, city_highway_split: inputs.cityPct, ac_usage: inputs.acUsage, vehicle_load: inputs.loadFactor
+                        engine_size: inputs.eSize, age: inputs.age, daily_distance: inputs.dTot, city_highway_split: inputs.cityPct, 
+                        traffic_intensity: inputs.trafficIntensity, ac_usage: inputs.acUsage, vehicle_load: inputs.loadFactor,
+                        last_service_date: inputs.lastAirFilterDate || inputs.lastOilChangeDate || inputs.lastPucDate,
+                        original_kmpl: inputs.originalKmpl, current_kmpl: inputs.currentKmpl
                     })
+
                 });
                 if (recRes.ok) setRecommendations(await recRes.json());
             } catch { /* ignore */ } finally { setIsLoadingRecommendations(false); }
@@ -278,9 +293,13 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
     ];
 
     const emCat = extractedVehicle ? getEmissionCategory(extractedVehicle.fType, extractedVehicle.eStd) : null;
+    // Fuel cost: use live India prices (₹/unit) per fuel type
     const fuelCostEst = extractedVehicle?.fuelEfficiencyKmpl && inputs.fType !== 'ev'
-        ? Math.round((inputs.dTot / extractedVehicle.fuelEfficiencyKmpl) * 105)
-        : null;
+        ? Math.round((inputs.dTot / extractedVehicle.fuelEfficiencyKmpl) * (fuelPrices[inputs.fType] ?? 96))
+        : inputs.fType === 'ev' && extractedVehicle
+            // EV: assume ~7 kWh/100km for 2-wheelers, ~15 kWh/100km for cars/SUVs
+            ? Math.round((inputs.dTot * (inputs.vType === '2wheeler' ? 0.07 : 0.15)) * (fuelPrices.ev ?? 8))
+            : null;
 
     const stepAnimClass = stepDir === 'right' ? '' : 'slide-left';
 
@@ -533,11 +552,13 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 <IconCardGroup options={trafficOptions} value={inputs.trafficIntensity || 'Medium'} onChange={v => updateInput('trafficIntensity', v as string)} />
                             </div>
 
-                            {/* AC */}
-                            <div>
-                                <div className="section-label">AC Usage</div>
-                                <IconCardGroup options={acOptions} value={inputs.acUsage || 'Moderate'} onChange={v => updateInput('acUsage', v as string)} />
-                            </div>
+                            {/* AC — hidden for 2-wheelers which don't have AC */}
+                            {inputs.vType !== '2wheeler' && (
+                                <div>
+                                    <div className="section-label">AC Usage</div>
+                                    <IconCardGroup options={acOptions} value={inputs.acUsage || 'Moderate'} onChange={v => updateInput('acUsage', v as string)} />
+                                </div>
+                            )}
 
                             {/* Live preview */}
                             {livePreview !== null && (
@@ -562,11 +583,14 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 <IconCardGroup options={maintOptions} value={inputs.maint} onChange={v => updateInput('maint', v as string)} />
                             </div>
 
-                            <div style={{ marginBottom: '8px' }}>
-                                <div className="section-label">Passenger / Cargo Load</div>
-                                <IconCardGroup options={loadOptions} value={inputs.loadFactor || 1} onChange={v => updateInput('loadFactor', v as number)} />
-                                <div className="tooltip-hint">💡 More passengers or cargo = more fuel burned = higher emissions</div>
-                            </div>
+                            {/* Load — hidden for 2-wheelers (solo/pillion has minimal impact vs car) */}
+                            {inputs.vType !== '2wheeler' && (
+                                <div style={{ marginBottom: '8px' }}>
+                                    <div className="section-label">Passenger / Cargo Load</div>
+                                    <IconCardGroup options={loadOptions} value={inputs.loadFactor || 1} onChange={v => updateInput('loadFactor', v as number)} />
+                                    <div className="tooltip-hint">💡 More passengers or cargo = more fuel burned = higher emissions</div>
+                                </div>
+                            )}
 
                             <div style={{ marginBottom: 'var(--sp-md)', marginTop: 'var(--sp-md)' }}>
                                 <div className="section-label">Vehicle Age</div>
@@ -597,27 +621,21 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
 
                     {/* ── STEP 4: Service & Health ── */}
                     {step === 4 && (() => {
-                        const dService = calculateDaysSince(inputs.lastServiceDate);
                         const dOil = calculateDaysSince(inputs.lastOilChangeDate);
                         const dAirFilter = calculateDaysSince(inputs.lastAirFilterDate);
                         const dPUC = calculateDaysSince(inputs.lastPucDate);
 
-                        const SERVICE_THRESHOLD = 180;
-                        const OIL_THRESHOLD = 120;
-                        const AIRFILTER_THRESHOLD = 270;
+                        // Indian standard thresholds (mirrors calculation.ts)
+                        // Oil: 90 days / ~5000 km (petrol SIAM), Air Filter: 365 days / ~15,000 km, PUC: 180 days (CMVR)
+                        const OIL_THRESHOLD = 90;
+                        const AIRFILTER_THRESHOLD = 365;
                         const PUC_THRESHOLD = 180;
 
                         const serviceItems = [
                             {
-                                label: 'Last Servicing', icon: <MatIcon name="build" size={18} color="var(--accent-green)" />, key: 'lastServiceDate' as keyof CalculationInput,
-                                days: dService, threshold: SERVICE_THRESHOLD, statusClass: overdueClass(dService, SERVICE_THRESHOLD),
-                                penalties: [
-                                    dService && dService > SERVICE_THRESHOLD ? `+${Math.min(Math.round((dService - SERVICE_THRESHOLD) / 30 * 4), 40)}% CO` : '',
-                                    dService && dService > SERVICE_THRESHOLD ? `+${Math.min(Math.round((dService - SERVICE_THRESHOLD) / 30 * 2), 30)}% HC` : '',
-                                ].filter(Boolean),
-                            },
-                            {
-                                label: 'Last Oil Change', icon: <MatIcon name="water_drop" size={18} color="#60A5FA" />, key: 'lastOilChangeDate' as keyof CalculationInput,
+                                label: 'Last Oil Change',
+                                hint: 'Petrol: ~3 months / Diesel: ~6 months',
+                                icon: <MatIcon name="water_drop" size={18} color="#60A5FA" />, key: 'lastOilChangeDate' as keyof CalculationInput,
                                 days: dOil, threshold: OIL_THRESHOLD, statusClass: overdueClass(dOil, OIL_THRESHOLD),
                                 penalties: [
                                     dOil && dOil > OIL_THRESHOLD ? `+${Math.min(Math.round((dOil - OIL_THRESHOLD) / 30 * 5), 30)}% CO` : '',
@@ -625,7 +643,9 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 ].filter(Boolean),
                             },
                             {
-                                label: 'Last Air Filter', icon: <MatIcon name="air" size={18} color="#A78BFA" />, key: 'lastAirFilterDate' as keyof CalculationInput,
+                                label: 'Last Air Filter',
+                                hint: '~12 months / 15,000 km (BS-VI)',
+                                icon: <MatIcon name="air" size={18} color="#A78BFA" />, key: 'lastAirFilterDate' as keyof CalculationInput,
                                 days: dAirFilter, threshold: AIRFILTER_THRESHOLD, statusClass: overdueClass(dAirFilter, AIRFILTER_THRESHOLD),
                                 penalties: [
                                     dAirFilter && dAirFilter > AIRFILTER_THRESHOLD ? `+${Math.min(Math.round((dAirFilter - AIRFILTER_THRESHOLD) / 90 * 3), 15)}% CO₂` : '',
@@ -633,11 +653,13 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 ].filter(Boolean),
                             },
                             {
-                                label: 'Last PUC Check', icon: <MatIcon name="verified_user" size={18} color="#10B981" />, key: 'lastPucDate' as keyof CalculationInput,
+                                label: 'Last PUC Check',
+                                hint: 'Every 6 months — mandatory (CMVR)',
+                                icon: <MatIcon name="verified_user" size={18} color="#10B981" />, key: 'lastPucDate' as keyof CalculationInput,
                                 days: dPUC, threshold: PUC_THRESHOLD, statusClass: overdueClass(dPUC, PUC_THRESHOLD),
                                 penalties: [
-                                    dPUC && dPUC > PUC_THRESHOLD + 90 ? '+20% CO' : '',
-                                    dPUC && dPUC > PUC_THRESHOLD + 90 ? '+15% HC' : '',
+                                    dPUC && dPUC > PUC_THRESHOLD ? '+10% CO' : '',
+                                    dPUC && dPUC > PUC_THRESHOLD + 90 ? '+15% HC (severely overdue)' : '',
                                 ].filter(Boolean),
                             },
                         ];
@@ -661,8 +683,10 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                                 <div className="service-date-card-header">
                                                     {item.icon}
                                                     <span className="service-date-label">{item.label}</span>
-                                                    <span className={`status-dot dot-${item.statusClass}`} />
                                                 </div>
+                                                {item.hint && (
+                                                    <div style={{ fontSize: '0.65rem', color: 'var(--md-on-surface-muted)', marginBottom: '4px', opacity: 0.8 }}>{item.hint}</div>
+                                                )}
                                                 <input type="text" className="service-date-input"
                                                     placeholder="DD/MM/YYYY"
                                                     value={inputs[item.key] ? (() => {
@@ -688,12 +712,8 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                                 {item.days !== null && (
                                                     <div className="service-days-ago">
                                                         {item.days} days ago
-                                                        {item.days <= item.threshold && (
-                                                            <span style={{ color: 'var(--md-primary)', marginLeft: 6 }}><MatIcon name="check_circle" size={12} filled /> {item.threshold - item.days}d rem</span>
-                                                        )}
                                                     </div>
                                                 )}
-                                                <OverdueBadge days={item.days} threshold={item.threshold} penalties={item.penalties} />
                                             </div>
                                         ))}
                                     </div>
@@ -780,12 +800,13 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                     if (overdue <= 180) return 3;
                     return 0;
                 }
-                const dService = calculateDaysSince(inputs.lastServiceDate);
                 const dOil = calculateDaysSince(inputs.lastOilChangeDate);
                 const dAirFilter = calculateDaysSince(inputs.lastAirFilterDate);
                 const dPUC = calculateDaysSince(inputs.lastPucDate);
-                
-                const svcScore = serviceScore(dService, 180) + serviceScore(dOil, 120) + serviceScore(dAirFilter, 270) + serviceScore(dPUC, 180);
+
+                // svcScore: 3 items × max 10pts = 30pts max
+                // Oil (90d), Air Filter (365d), PUC (180d)
+                const svcScore = serviceScore(dOil, 90) + serviceScore(dAirFilter, 365) + serviceScore(dPUC, 180);
                 const engineScore = inputs.engineCondition === 'good' ? 20 : inputs.engineCondition === 'average' ? 12 : 0;
                 
                 const mileageDrop = inputs.originalKmpl && inputs.currentKmpl && inputs.originalKmpl > 0 && inputs.currentKmpl > 0 && inputs.currentKmpl < inputs.originalKmpl ? (inputs.originalKmpl - inputs.currentKmpl) / inputs.originalKmpl : 0;
@@ -805,6 +826,53 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                     { name: 'CO', extra: Math.round((sM.co_mult - 1) * 100) },
                     { name: 'NOx', extra: Math.round((sM.nox_mult - 1) * 100) }
                 ].filter(p => p.extra > 0);
+
+                // ── AI Personalized Recommendations (Service-Driven) ────────────────
+                const serviceTips = [
+                    dOil && dOil > 90 ? {
+                        title: 'Urgent: Engine Oil Change',
+                        desc: `Your oil was last changed ${dOil} days ago (limit: 90). Overdue oil increases CO₂ by ~10% and causes engine wear.`,
+                        icon: <MatIcon name="water_drop" size={18} />,
+                        impact: '↓ –10% CO₂', savings: 'Save ~0.4 kg/day'
+                    } : null,
+                    dAirFilter && dAirFilter > 365 ? {
+                        title: 'Replace Air Filter',
+                        desc: `Last changed ${dAirFilter} days ago (limit: 365). A clogged filter restricts air, increasing CO₂ and PM2.5 emissions.`,
+                        icon: <MatIcon name="air" size={18} />,
+                        impact: '↓ –8% CO₂', savings: 'Save ~0.3 kg/day'
+                    } : null,
+                    dPUC && dPUC > 180 ? {
+                        title: 'Renew PUC Certificate',
+                        desc: `PUC certificate is expired (${dPUC} days ago). Mandatory for BS compliance and identifying high CO/HC levels.`,
+                        icon: <MatIcon name="verified_user" size={18} />,
+                        impact: '↓ –15% HC', savings: 'Legal Compliance'
+                    } : null,
+                    mileageDrop > 0.1 ? {
+                        title: 'Address Mileage Drop',
+                        desc: `Your mileage has dropped by ${Math.round(mileageDrop * 100)}%. This usually indicates fuel injector issues or low tyre pressure.`,
+                        icon: <MatIcon name="trending_down" size={18} />,
+                        impact: '↓ –12% CO₂', savings: 'Save ₹15-20/day'
+                    } : null,
+                    inputs.engineNoise === 'rough' || inputs.engineCondition === 'poor' ? {
+                        title: 'Schedule Engine Tune-up',
+                        desc: `Rough engine noise or poor condition adds ~20% emission penalty. Check spark plugs and cylinder compression.`,
+                        icon: <MatIcon name="build" size={18} />,
+                        impact: '↓ –20% PM2.5', savings: 'Smoother Ride'
+                    } : null,
+                    inputs.smokeLevel !== 'none' ? {
+                        title: 'Inspect Exhaust System',
+                        desc: `Visible smoke indicates incomplete combustion. This significantly increases harmful PM2.5 and NOx levels.`,
+                        icon: <MatIcon name="smoke_free" size={18} />,
+                        impact: '↓ –35% PM2.5', savings: 'Health First'
+                    } : null,
+                    // Generic behavior tips if not many service issues
+                    inputs.cityPct > 70 ? {
+                        title: 'Combine Short Trips',
+                        desc: 'Cold starts in city traffic are 40% less efficient. Batch your errands to keep the engine at optimal temp.',
+                        icon: <MatIcon name="route" size={18} />,
+                        impact: '↓ –5% CO₂', savings: 'Batch Errands'
+                    } : null,
+                ].filter(Boolean) as { title: string; desc: string; icon: ReactNode; impact: string; savings: string }[];
 
                 return (
                     <div id="resultsDashboard" className="results-dashboard" style={{ animation: 'fadeInUp 0.6s ease' }}>
@@ -838,9 +906,30 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                             </div>
                         </div>
 
-                        {/* Vehicle name */}
+                        {/* Vehicle name + image on results */}
                         {extractedVehicle && (
                             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+                                {/* Vehicle image / placeholder */}
+                                {(extractedVehicle.imageUrl || extractedVehicle.imageKeyword) ? (
+                                    <div className="vehicle-image-container" style={{ margin: '0 auto 16px', maxWidth: 240 }}>
+                                        <img
+                                            src={extractedVehicle.imageUrl || `https://loremflickr.com/400/300/car,${encodeURIComponent(extractedVehicle.imageKeyword.replace(/ /g, ','))}`}
+                                            alt={extractedVehicle.name}
+                                            onError={e => {
+                                                const t = e.target as HTMLImageElement;
+                                                if (extractedVehicle.imageUrl && t.src === extractedVehicle.imageUrl)
+                                                    t.src = `https://loremflickr.com/400/300/car,${encodeURIComponent(extractedVehicle.imageKeyword.replace(/ /g, ','))}`;
+                                                else t.style.display = 'none';
+                                            }}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="vehicle-image-container" style={{ margin: '0 auto 16px', maxWidth: 240 }}>
+                                        <div className="vehicle-image-fallback">
+                                            <MatIcon name={inputs.vType === '2wheeler' ? 'two_wheeler' : inputs.vType === 'suv' ? 'directions_car' : 'directions_car'} size={72} style={{ color: 'var(--md-primary)', opacity: 0.4 }} />
+                                        </div>
+                                    </div>
+                                )}
                                 <p style={{ color: 'var(--md-on-surface-muted)', fontSize: '0.85rem' }}>Results for</p>
                                 <h3 style={{ fontFamily: 'Outfit,sans-serif', fontSize: '1.4rem', fontWeight: 700 }}>{extractedVehicle.name}</h3>
                             </div>
@@ -958,83 +1047,94 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                     <div className="skeleton skeleton-tip" style={{ marginBottom: '10px' }} />
                                     <div className="skeleton skeleton-tip" style={{ marginBottom: '10px' }} />
                                     <div className="skeleton skeleton-tip" />
-                                    <p style={{ textAlign: 'center', color: 'var(--md-on-surface-muted)', fontSize: '0.85rem', marginTop: '12px' }}>Analyzing your driving patterns…</p>
+                                    <p style={{ textAlign: 'center', color: 'var(--md-on-surface-muted)', fontSize: '0.85rem', marginTop: '12px' }}>Analyzing your data…</p>
                                 </>
-                            ) : recommendations && recommendations.length > 0 ? (
+                            ) : (
                                 <div style={{ animation: 'fadeIn 0.5s ease' }}>
-                                    {recommendations.map((rec, i) => {
-                                        const impacts = ['–12% CO₂', '–8% NOx', '–15% PM2.5'];
-                                        const savings = ['~0.5 kg/day', '~0.3 kg/day', '~0.7 kg/day'];
+                                    {(recommendations || serviceTips).slice(0, 3).map((rec: any, i) => {
+                                        const tip = rec.title ? rec : serviceTips[i] || serviceTips[0];
                                         return (
                                             <div key={i} className="eco-tip">
-                                                <span className="eco-tip-icon">{[<MatIcon name="route" size={18} />, <MatIcon name="build" size={18} />, <MatIcon name="public" size={18} />][i] || <MatIcon name="info" size={18} />}</span>
+                                                <span className="eco-tip-icon">{tip.icon || <MatIcon name="lightbulb" size={18} />}</span>
                                                 <div className="eco-tip-content">
-                                                    <div className="eco-tip-title">{rec.title}</div>
-                                                    <div className="eco-tip-desc">{rec.description}</div>
+                                                    <div className="eco-tip-title">{tip.title}</div>
+                                                    <div className="eco-tip-desc">{tip.description || tip.desc}</div>
                                                     <div className="eco-tip-badges">
-                                                        <span className="impact-badge">↓ {impacts[i] || '–10% CO₂'}</span>
-                                                        <span className="impact-badge" style={{ background: 'rgba(59,130,246,0.15)', color: '#60A5FA', border: '1px solid rgba(59,130,246,0.3)' }}>Save {savings[i] || '~0.4 kg/day'}</span>
+                                                        <span className="impact-badge">{tip.impact || '↓ –10% CO₂'}</span>
+                                                        <span className="impact-badge" style={{ background: 'rgba(59,130,246,0.15)', color: '#60A5FA', border: '1px solid rgba(59,130,246,0.3)' }}>{tip.savings || 'Save fuel'}</span>
                                                     </div>
                                                 </div>
                                             </div>
                                         );
                                     })}
                                 </div>
-                            ) : (
-                                <div>
-                                    {inputs.fType !== 'ev' && (inputs.dTot / 2.0 < 10) && (
-                                        <div className="eco-tip">
-                                            <span className="eco-tip-icon"><MatIcon name="directions_walk" size={18} /></span>
-                                            <div className="eco-tip-content">
-                                                <div className="eco-tip-title">Walk or cycle for short trips</div>
-                                                <div className="eco-tip-desc">Cold engine burns 40-60% more fuel in the first 3 km. Short trips are the least efficient.</div>
-                                                <div className="eco-tip-badges"><span className="impact-badge">↓ –40% cold-start CO₂</span></div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {inputs.fType !== 'ev' && inputs.age > 10 && (
-                                        <div className="eco-tip">
-                                            <span className="eco-tip-icon"><MatIcon name="build_circle" size={18} /></span>
-                                            <div className="eco-tip-content">
-                                                <div className="eco-tip-title">Engine tune-up &amp; filter change</div>
-                                                <div className="eco-tip-desc">Older engines add ~30% more emissions. A service can drastically reduce PM and CO.</div>
-                                                <div className="eco-tip-badges"><span className="impact-badge">↓ –30% PM2.5</span></div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {inputs.fType !== 'ev' && (inputs.eStd === 'bs2' || inputs.eStd === 'bs3') && (
-                                        <div className="eco-tip">
-                                            <span className="eco-tip-icon"><MatIcon name="update" size={18} /></span>
-                                            <div className="eco-tip-content">
-                                                <div className="eco-tip-title">Consider upgrading to BS-VI or EV</div>
-                                                <div className="eco-tip-desc">BS2/BS3 engines lack modern catalysts. BS-VI is 80-90% cleaner on NOx and PM.</div>
-                                                <div className="eco-tip-badges"><span className="impact-badge">↓ –80% NOx</span></div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {inputs.fType === 'ev' && (
-                                        <div className="eco-tip">
-                                            <span className="eco-tip-icon"><MatIcon name="electric_bolt" size={18} filled /></span>
-                                            <div className="eco-tip-content">
-                                                <div className="eco-tip-title">Use regenerative braking</div>
-                                                <div className="eco-tip-desc">Minimize hard stops to reduce tyre and brake wear PM2.5, and recover energy efficiently.</div>
-                                                <div className="eco-tip-badges"><span className="impact-badge">↓ –10% PM2.5</span></div>
-                                            </div>
-                                        </div>
-                                    )}
-                                    {inputs.cityPct > 70 && (
-                                        <div className="eco-tip">
-                                            <span className="eco-tip-icon"><MatIcon name="merge" size={18} /></span>
-                                            <div className="eco-tip-content">
-                                                <div className="eco-tip-title">Combine trips to avoid cold starts</div>
-                                                <div className="eco-tip-desc">High city driving with many cold starts heavily inflates emissions. Batch your errands.</div>
-                                                <div className="eco-tip-badges"><span className="impact-badge">↓ –15% CO₂</span></div>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
                             )}
                         </div>
+
+                        {(() => {
+                            // Helper: parse date string (DD/MM/YYYY or YYYY-MM-DD) → Date | null
+                            const parseServiceDate = (s: string | undefined | null): Date | null => {
+                                if (!s) return null;
+                                if (s.includes('/')) {
+                                    const [dd, mm, yyyy] = s.split('/');
+                                    const d = new Date(`${yyyy}-${mm}-${dd}`);
+                                    return isNaN(d.getTime()) ? null : d;
+                                }
+                                const d = new Date(s);
+                                return isNaN(d.getTime()) ? null : d;
+                            };
+
+                            const addDays = (d: Date, days: number) => {
+                                const r = new Date(d);
+                                r.setDate(r.getDate() + days);
+                                return r;
+                            };
+
+                            // OIL: every 90 days; Air Filter: every 365 days; PUC: every 180 days
+                            const oilBase = parseServiceDate(inputs.lastOilChangeDate) || new Date();
+                            const airBase = parseServiceDate(inputs.lastAirFilterDate) || new Date();
+                            const pucBase = parseServiceDate(inputs.lastPucDate) || new Date();
+
+                            const nextOil = addDays(oilBase, 90);
+                            const nextAir = addDays(airBase, 365);
+                            const nextPuc = addDays(pucBase, 180);
+
+                            const nextServiceDates = [
+                                { label: 'Oil Change', date: nextOil.toISOString().split('T')[0] },
+                                { label: 'Air Filter', date: nextAir.toISOString().split('T')[0] },
+                                { label: 'PUC Check', date: nextPuc.toISOString().split('T')[0] },
+                            ];
+
+                            const vehicleSpecs = extractedVehicle ? {
+                                fuelType: inputs.fType,
+                                standard: inputs.eStd,
+                                engineCC: extractedVehicle.engineCC,
+                                transmission: extractedVehicle.transmission,
+                                fuelEfficiency: extractedVehicle.fuelEfficiencyKmpl,
+                                vehicleType: inputs.vType === '2wheeler' ? '2-Wheeler' : inputs.vType.toUpperCase(),
+                                age: inputs.age,
+                            } : undefined;
+
+                            const emissionResults = {
+                                CO2: results.total.CO2,
+                                NOx: results.total.NOx,
+                                PM25: results.total.PM25,
+                                CO: results.total.CO,
+                                HC: results.total.HC,
+                            };
+
+                            return (
+                                <EmailReminders
+                                    vehicleName={extractedVehicle?.name}
+                                    vehicleImageUrl={extractedVehicle?.imageUrl}
+                                    vehicleSpecs={vehicleSpecs}
+                                    emissionResults={emissionResults}
+                                    maintenanceScore={totalMaintScore}
+                                    nextServiceDates={nextServiceDates}
+                                    recommendations={recommendations || undefined}
+                                />
+                            );
+                        })()}
 
                         {/* Transparency */}
                         <div className="transparency-card">
@@ -1050,7 +1150,9 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                     {[
                                         ['1. Base Emission Factors (Hot)', `Based on ${inputs.eStd.toUpperCase()} ${inputs.fType} — City: ${results.adjEF?.city?.CO2?.toFixed(1) || 0} g/km | Hwy: ${results.adjEF?.hwy?.CO2?.toFixed(1) || 0} g/km`],
                                         ['2. Cold-Start Phase (COPERT)', `First 1.5 km per trip: CO ×6, HC ×5, PM ×2.5–3. Cold distance today: ${results.d_cold_total?.toFixed(1) || 0} km`],
-                                        ['3. Real Driving Penalties', `Traffic (${inputs.trafficIntensity}): NOx +40%, CO +50%. AC (${inputs.acUsage}): +5–15% CO₂. Load: +10–15% per step.`],
+                                        ['3. Real Driving Penalties', inputs.vType === '2wheeler'
+                                            ? `Traffic (${inputs.trafficIntensity}): NOx +40%, CO +50%.`
+                                            : `Traffic (${inputs.trafficIntensity}): NOx +40%, CO +50%. AC (${inputs.acUsage}): +5–15% CO₂. Load: +10–15% per step.`],
                                         ['4. Non-Exhaust (EMEP/EEA)', `Tyre: ${results.e_non_exhaust?.tyrePM25?.toFixed(2) || 0} g PM2.5 | Brake: ${results.e_non_exhaust?.brakePM25?.toFixed(2) || 0} g PM2.5`],
                                     ].map(([title, body]) => (
                                         <div key={title} style={{ marginTop: '14px' }}>
