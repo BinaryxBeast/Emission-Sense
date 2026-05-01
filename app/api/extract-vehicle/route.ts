@@ -5,6 +5,7 @@ import google from 'googlethis';
 export async function POST(req: NextRequest) {
     try {
         const apiKeys = [
+            process.env.GEMINI_API_KEY_V3,
             process.env.GEMINI_API_KEY_SEARCH_1,
             process.env.GEMINI_API_KEY_SEARCH_2,
             process.env.GEMINI_API_KEY_SEARCH_3,

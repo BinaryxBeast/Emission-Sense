@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(req: NextRequest) {
     try {
         const apiKeys = [
+            process.env.GEMINI_API_KEY_V3,
             process.env.GEMINI_API_KEY_REC_1,
             process.env.GEMINI_API_KEY_REC_2,
             process.env.GEMINI_API_KEY_REC_3,
