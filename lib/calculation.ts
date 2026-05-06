@@ -351,7 +351,7 @@ export function calculateEmissions(inputs: CalculationInput) {
 
     // 6. NON-EXHAUST PM2.5 — separate tyre + brake (Non-Exhaust_Emissions.md)
     const neeFactors = NEE_FACTORS[vType] || NEE_FACTORS['car'];
-    let tyrePM25 = (neeFactors.tyre * dTot) / 1000; // mg/km → g
+    const tyrePM25 = (neeFactors.tyre * dTot) / 1000; // mg/km → g
     let brakePM25 = (neeFactors.brake * dTot) / 1000;
 
     // EV regenerative braking reduces brake wear by 10%, but NOT tyre wear

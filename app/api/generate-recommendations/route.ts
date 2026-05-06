@@ -19,7 +19,8 @@ export async function POST(req: NextRequest) {
         const { 
             name, fuel_type, emission_standard, engine_size, age,
             daily_distance, city_highway_split, traffic_intensity, ac_usage, vehicle_load, 
-            last_service_date, original_kmpl, current_kmpl
+            last_service_date, original_kmpl, current_kmpl,
+            emissions, maintenance_score, emission_rating
         } = body;
 
         if (!name) {
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
                     const diffTime = Math.abs(new Date().getTime() - dateObj.getTime());
                     days_since_service = String(Math.floor(diffTime / (1000 * 60 * 60 * 24)));
                 }
-            } catch (e) {
+            } catch {
                 // Ignore parsing errors
             }
         }
@@ -82,6 +83,13 @@ I've got some details about your ride and how you drive:
 3. Maintenance & Health (The "Why")
 - The Service Gap: ${days_since_service !== "Unknown" ? days_since_service + " days since last check" : "Unknown"}
 - Efficiency Decay: ${original_kmpl && current_kmpl ? 'Earlier: ' + original_kmpl + ' vs. Now: ' + current_kmpl + ' (' + efficiency_drop + ' drop)' : "Unknown"}
+${emissions ? `
+4. Calculated Emissions & Impact (The "Result")
+- Overall Rating: ${emission_rating || "Unknown"}
+- Maintenance Score: ${maintenance_score !== undefined ? maintenance_score + "/100" : "Unknown"}
+- Estimated Daily CO2: ${emissions.CO2 ? emissions.CO2.toFixed(1) + " kg" : "Unknown"}
+- Estimated PM2.5: ${emissions.PM25 ? emissions.PM25.toFixed(2) + " g" : "Unknown"}
+- Estimated NOx: ${emissions.NOx ? emissions.NOx.toFixed(2) + " g" : "Unknown"}` : ''}
 
 ### YOUR MISSION
 Based on this info, give me 3 personalized "Pro-Tips." 
@@ -89,7 +97,7 @@ Based on this info, give me 3 personalized "Pro-Tips."
 ### GUIDELINES FOR VARIETY & STYLE:
 1. NO REPETITION: Every time I ask, try to find a different angle. One time focus on fuel savings, another time on vehicle longevity, or the specific environmental impact of ${isEV ? 'EVs' : fuel_type.toUpperCase()}.
 2. TALK LIKE A FRIEND: Use phrases like "Since you're mostly in city traffic," "Your ${name} will thank you if...", or "I noticed your AC usage is..."
-3. BE DESCRIPTIVE & PROACTIVE: Don't just give a fact; explain the 'why' in a way that feels like a conversation. Diagnose issues based on the service gap or efficiency drop. You have a limit of 45 words per description now—use them to add personality!
+3. BE DESCRIPTIVE & PROACTIVE: Don't just give a fact; explain the 'why' in a way that feels like a conversation. Diagnose issues based on the service gap, efficiency drop, or the calculated emission values (e.g., if PM2.5 or CO2 is high, or maintenance score is low). You have a limit of 45 words per description now—use them to add personality!
 4. NUDGE, DON'T LECTURE: Instead of "Do X," say "You might want to try X."
 5. TAILORED ACTIONS: If they have traffic stress ("Some stops"), suggest specific braking/idling tips. If they are overdue for service, bring it up nicely!
 
@@ -116,7 +124,7 @@ Example JSON Structure:
                 text = result.response.text().trim();
                 generationSuccessful = true;
                 break;
-            } catch (error: any) {
+            } catch (error) {
                 console.warn("Gemini API Error with a recommendation key, trying next if available...");
                 lastError = error;
             }
@@ -135,11 +143,12 @@ Example JSON Structure:
         const recommendations = JSON.parse(text);
 
         return NextResponse.json(recommendations);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Gemini Recommendations Error:", error);
 
-        if (error.status === 429 || (error.message && error.message.includes('429'))) {
-            const delayMatch = error.message ? error.message.match(/retry in ([\d.]+)s/) : null;
+        const err = error as { status?: number, message?: string };
+        if (err.status === 429 || (err.message && err.message.includes('429'))) {
+            const delayMatch = err.message ? err.message.match(/retry in ([\d.]+)s/) : null;
             const retryAfter = delayMatch ? Math.ceil(parseFloat(delayMatch[1])) : 60;
 
             return NextResponse.json({

@@ -254,6 +254,28 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
         setTimeout(() => document.getElementById('resultsDashboard')?.scrollIntoView({ behavior: 'smooth' }), 100);
         if (extractedVehicle) {
             setIsLoadingRecommendations(true); setRecommendations(null);
+
+            function serviceScore(days: number | null, threshold: number): number {
+                if (days === null) return 7;
+                const overdue = days - threshold;
+                if (overdue <= 0) return 10;
+                if (overdue <= 90) return 6;
+                if (overdue <= 180) return 3;
+                return 0;
+            }
+            const dOil = calculateDaysSince(inputs.lastOilChangeDate);
+            const dAirFilter = calculateDaysSince(inputs.lastAirFilterDate);
+            const dPUC = calculateDaysSince(inputs.lastPucDate);
+            const svcScore = serviceScore(dOil, 90) + serviceScore(dAirFilter, 365) + serviceScore(dPUC, 180);
+            const engineScore = inputs.engineCondition === 'good' ? 20 : inputs.engineCondition === 'average' ? 12 : 0;
+            const mileageDrop = inputs.originalKmpl && inputs.currentKmpl && inputs.originalKmpl > 0 && inputs.currentKmpl > 0 && inputs.currentKmpl < inputs.originalKmpl ? (inputs.originalKmpl - inputs.currentKmpl) / inputs.originalKmpl : 0;
+            const milageDrop_pct = mileageDrop * 100;
+            const mileageScore = milageDrop_pct <= 5 ? 15 : milageDrop_pct <= 15 ? 9 : milageDrop_pct <= 30 ? 4 : 0;
+            const mileageScoreFinal = (!inputs.originalKmpl || !inputs.currentKmpl) ? 10 : mileageScore;
+            const smokeScore = inputs.smokeLevel === 'none' ? 15 : inputs.smokeLevel === 'low' ? 8 : 0;
+            const noiseScore = inputs.engineNoise === 'normal' ? 10 : 5;
+            const totalMaintScore = Math.min(100, svcScore + engineScore + mileageScoreFinal + smokeScore + noiseScore);
+
             try {
                 const recRes = await fetch('/api/generate-recommendations', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -262,7 +284,10 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                         engine_size: inputs.eSize, age: inputs.age, daily_distance: inputs.dTot, city_highway_split: inputs.cityPct, 
                         traffic_intensity: inputs.trafficIntensity, ac_usage: inputs.acUsage, vehicle_load: inputs.loadFactor,
                         last_service_date: inputs.lastAirFilterDate || inputs.lastOilChangeDate || inputs.lastPucDate,
-                        original_kmpl: inputs.originalKmpl, current_kmpl: inputs.currentKmpl
+                        original_kmpl: inputs.originalKmpl, current_kmpl: inputs.currentKmpl,
+                        emissions: res.total,
+                        maintenance_score: totalMaintScore,
+                        emission_rating: rating.label
                     })
 
                 });
@@ -1069,6 +1094,117 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                     })}
                                 </div>
                             )}
+                        </div>
+
+                        {/* Policy Analysis */}
+                        <div className="eco-tips" style={{ marginTop: '24px' }}>
+                            <div className="eco-tips-title"><MatIcon name="gavel" size={18} /> Policy Analysis (Indian Laws)</div>
+                            <div style={{ animation: 'fadeIn 0.5s ease' }}>
+                                {(() => {
+                                    const policyAnalysis = [];
+                                    
+                                    if (inputs.fType === 'diesel' && inputs.age >= 10) {
+                                        policyAnalysis.push({
+                                            title: 'End of Life (Delhi-NCR NGT Ban)',
+                                            desc: 'Diesel vehicles older than 10 years are legally banned from plying in Delhi-NCR under National Green Tribunal guidelines.',
+                                            icon: <MatIcon name="do_not_disturb_on" size={18} />,
+                                            statusColor: 'var(--md-error)', bg: 'rgba(239,68,68,0.1)'
+                                        });
+                                    } else if (inputs.fType === 'diesel' && inputs.age >= 7) {
+                                        policyAnalysis.push({
+                                            title: 'Approaching Age Limit',
+                                            desc: 'Diesel vehicles face a strict 10-year life limit in Delhi-NCR. Consider resale outside NCR or scrappage options.',
+                                            icon: <MatIcon name="warning" size={18} />,
+                                            statusColor: 'var(--md-warning)', bg: 'rgba(245,158,11,0.1)'
+                                        });
+                                    }
+
+                                    if ((inputs.fType === 'petrol' || inputs.fType === 'cng') && inputs.age >= 15) {
+                                        policyAnalysis.push({
+                                            title: '15-Year Rule / Re-registration',
+                                            desc: 'Petrol/CNG vehicles over 15 years are banned in Delhi-NCR. Other states require strict fitness tests and re-registration every 5 years.',
+                                            icon: <MatIcon name="warning" size={18} />,
+                                            statusColor: 'var(--md-error)', bg: 'rgba(239,68,68,0.1)'
+                                        });
+                                    } else if ((inputs.fType === 'petrol' || inputs.fType === 'cng') && inputs.age >= 12) {
+                                        policyAnalysis.push({
+                                            title: 'Approaching 15-Year Fitness Test',
+                                            desc: 'At 15 years, this vehicle will require mandatory fitness testing for RC renewal under the Motor Vehicles Act.',
+                                            icon: <MatIcon name="info" size={18} />,
+                                            statusColor: 'var(--md-warning)', bg: 'rgba(245,158,11,0.1)'
+                                        });
+                                    }
+
+                                    if (inputs.age > 15) {
+                                        policyAnalysis.push({
+                                            title: 'Green Tax Liability',
+                                            desc: 'Older vehicles may be subject to a Green Tax (10-25% of road tax) during registration renewal to discourage highly polluting vehicles.',
+                                            icon: <MatIcon name="account_balance" size={18} />,
+                                            statusColor: 'var(--md-warning)', bg: 'rgba(245,158,11,0.1)'
+                                        });
+                                    }
+
+                                    if (dPUC && dPUC > 180) {
+                                        policyAnalysis.push({
+                                            title: 'PUC Violation (CMVR 115)',
+                                            desc: 'Driving without a valid PUC certificate is an offense under Section 190(2) of the Motor Vehicles Act, carrying a fine of up to ₹10,000.',
+                                            icon: <MatIcon name="gavel" size={18} />,
+                                            statusColor: 'var(--md-error)', bg: 'rgba(239,68,68,0.1)'
+                                        });
+                                    }
+
+                                    if (inputs.fType === 'ev') {
+                                        policyAnalysis.push({
+                                            title: 'EV Incentives & Exemption',
+                                            desc: 'Eligible for lower GST (5%), exemption from green tax, and state-specific EV policy benefits like zero road tax and registration fees.',
+                                            icon: <MatIcon name="electric_car" size={18} />,
+                                            statusColor: 'var(--accent-green)', bg: 'rgba(16,185,129,0.1)'
+                                        });
+                                    }
+
+                                    if (inputs.eStd === 'bs3' || inputs.eStd === 'bs2') {
+                                        policyAnalysis.push({
+                                            title: 'BS-III / BS-II Restrictions (GRAP)',
+                                            desc: 'Pre-BS-IV vehicles face severe ply bans during high pollution days under the Graded Response Action Plan (GRAP) in metro cities.',
+                                            icon: <MatIcon name="block" size={18} />,
+                                            statusColor: 'var(--md-error)', bg: 'rgba(239,68,68,0.1)'
+                                        });
+                                    } else if (inputs.eStd === 'bs4' && inputs.fType === 'diesel') {
+                                        policyAnalysis.push({
+                                            title: 'BS-IV Diesel Restrictions (GRAP)',
+                                            desc: 'BS-IV diesel vehicles are often restricted from operating during GRAP Stage III/IV severe air quality index days in Delhi-NCR.',
+                                            icon: <MatIcon name="warning" size={18} />,
+                                            statusColor: 'var(--md-warning)', bg: 'rgba(245,158,11,0.1)'
+                                        });
+                                    } else if (inputs.eStd === 'bs6') {
+                                        policyAnalysis.push({
+                                            title: 'BS-VI Compliance',
+                                            desc: 'Meets current Bharat Stage VI emission norms. Allowed to ply during most pollution control measures across India.',
+                                            icon: <MatIcon name="check_circle" size={18} />,
+                                            statusColor: 'var(--accent-green)', bg: 'rgba(16,185,129,0.1)'
+                                        });
+                                    }
+
+                                    if (policyAnalysis.length === 0) {
+                                         policyAnalysis.push({
+                                            title: 'Compliant with Basic Regulations',
+                                            desc: 'Vehicle appears compliant with general age and fuel regulations. Ensure your PUC, Insurance, and RC remain active.',
+                                            icon: <MatIcon name="verified" size={18} />,
+                                            statusColor: 'var(--accent-green)', bg: 'rgba(16,185,129,0.1)'
+                                        });
+                                    }
+
+                                    return policyAnalysis.map((policy, i) => (
+                                        <div key={i} className="eco-tip" style={{ borderLeft: `4px solid ${policy.statusColor}` }}>
+                                            <span className="eco-tip-icon" style={{ color: policy.statusColor, background: policy.bg }}>{policy.icon}</span>
+                                            <div className="eco-tip-content">
+                                                <div className="eco-tip-title">{policy.title}</div>
+                                                <div className="eco-tip-desc">{policy.desc}</div>
+                                            </div>
+                                        </div>
+                                    ));
+                                })()}
+                            </div>
                         </div>
 
                         {(() => {

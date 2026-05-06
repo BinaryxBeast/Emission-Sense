@@ -74,7 +74,7 @@ Return ONLY a valid JSON object. No markdown, no "here is the data", no backtick
                 text = result.response.text().trim();
                 generationSuccessful = true;
                 break;
-            } catch (error: any) {
+            } catch (error) {
                 console.warn("Gemini API Error with a search key, trying next if available...");
                 lastError = error;
             }
@@ -171,12 +171,13 @@ Return ONLY a valid JSON object. No markdown, no "here is the data", no backtick
         };
 
         return NextResponse.json(responsePayload);
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error("Gemini API Error:", error);
-
-        if (error.status === 429 || (error.message && error.message.includes('429'))) {
+        
+        const err = error as { status?: number, message?: string };
+        if (err.status === 429 || (err.message && err.message.includes('429'))) {
             // Extract retry delay from error message if available, else default to 60s
-            const delayMatch = error.message ? error.message.match(/retry in ([\d.]+)s/) : null;
+            const delayMatch = err.message ? err.message.match(/retry in ([\d.]+)s/) : null;
             const retryAfter = delayMatch ? Math.ceil(parseFloat(delayMatch[1])) : 60;
 
             return NextResponse.json({
