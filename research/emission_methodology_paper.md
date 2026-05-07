@@ -15,7 +15,7 @@ Emission-Sense calculates real-world vehicle pollution using a nine-stage multip
 
 | Pollutant | Unit | Relevance |
 |-----------|------|-----------|
-| CO₂ | kg/day | Primary greenhouse gas |
+| CO₂ | gm/day | Primary greenhouse gas |
 | NOₓ | g/day | Smog, respiratory irritant, acid rain |
 | PM₂.₅ | g/day | Deep lung penetration |
 | CO | g/day | Toxic asphyxiant |
@@ -213,7 +213,7 @@ E_evap = 0                                                  [diesel/EV]
 
 ### Path A: EF_DB lookup (fuel efficiency unknown)
 ```
-finalCO2 = (E_hot_CO2 + E_cold_CO2) / 1000    [kg]
+finalCO2 = (E_hot_CO2 + E_cold_CO2) / 1000    [gm]
 ```
 
 ### Path B: Fuel-efficiency override (preferred)
@@ -284,7 +284,7 @@ CO2_hwy  *= (1 + excess_steps × 0.03)    [3%/100 kg, highway]
 ## 15. Final Output
 
 ```
-Total_CO₂   = finalCO2 × co2_mult                                     [kg/day]
+Total_CO₂   = finalCO2 × co2_mult                                     [gm/day]
 Total_NOₓ   = (E_hot_NOx  + E_cold_NOx)  × nox_mult                   [g/day]
 Total_PM₂.₅ = (E_hot_PM25 + E_cold_PM25 + PM_non_exhaust) × pm25_mult  [g/day]
 Total_CO    = (E_hot_CO   + E_cold_CO)   × co_mult                    [g/day]

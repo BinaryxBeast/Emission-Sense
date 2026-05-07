@@ -375,7 +375,7 @@ if (emissionForm) {
 
         // 8. Total Emissions
         let total = {
-            CO2: (e_hot.CO2 + e_cold.CO2 + e_grid_co2) / 1000, // Convert g to kg
+            CO2: (e_hot.CO2 + e_cold.CO2 + e_grid_co2) / 1000, // Display as 'gm' per user request (originally kg)
             NOx: e_hot.NOx + e_cold.NOx,
             PM25: e_hot.PM25 + e_cold.PM25 + e_non_exhaust.PM25,
             CO: e_hot.CO + e_cold.CO,
@@ -471,11 +471,11 @@ if (emissionForm) {
         document.getElementById('roadBreakdown').innerHTML = `
             <div class="breakdown-item">
                 <span class="breakdown-label"><span class="breakdown-dot" style="background:#00e676"></span> City Driving</span>
-                <span class="breakdown-val">${c_co2.toFixed(1)} kg</span>
+                <span class="breakdown-val">${c_co2.toFixed(1)} gm</span>
             </div>
             <div class="breakdown-item">
                 <span class="breakdown-label"><span class="breakdown-dot" style="background:#00b0ff"></span> Highway Driving</span>
-                <span class="breakdown-val">${h_co2.toFixed(1)} kg</span>
+                <span class="breakdown-val">${h_co2.toFixed(1)} gm</span>
             </div>
         `;
 
@@ -490,14 +490,14 @@ if (emissionForm) {
                 <div class="comparison-bar-track">
                     <div class="comparison-bar-fill" style="width: ${Math.min(total.CO2 * 10, 100)}%; background: ${co2_color}"></div>
                 </div>
-                <div class="comparison-value">${total.CO2.toFixed(1)} kg</div>
+                <div class="comparison-value">${total.CO2.toFixed(1)} gm</div>
             </div>
             <div class="comparison-row">
                 <div class="comparison-label">Nat'l Avg</div>
                 <div class="comparison-bar-track">
                     <div class="comparison-bar-fill" style="width: ${nat_avg.CO2 * 10}%; background: rgba(255,255,255,0.3)"></div>
                 </div>
-                <div class="comparison-value">${nat_avg.CO2} kg</div>
+                <div class="comparison-value">${nat_avg.CO2} gm</div>
             </div>
             <p style="font-size:0.8rem; color:var(--text-secondary); margin-top:0.5rem; text-align:right;">
                 ${Math.abs(co2_diff).toFixed(0)}% ${co2_diff > 0 ? 'higher' : 'lower'} than average
@@ -561,7 +561,7 @@ function renderHistory() {
     list.innerHTML = hist.map(h => `
         <li class="history-item">
             <span class="history-vehicle">${h.veh}</span>
-            <span class="history-co2">${h.co2} kg CO₂</span>
+            <span class="history-co2">${h.co2} gm CO₂</span>
             <span class="history-date">${h.date}</span>
         </li>
     `).join('');

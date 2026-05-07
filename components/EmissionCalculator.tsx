@@ -589,7 +589,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                             {livePreview !== null && (
                                 <div className="live-preview">
                                     <div className="live-preview-dot" />
-                                    <span>Estimated ~<strong>{livePreview.toFixed(1)} kg CO₂</strong> today — updating live</span>
+                                    <span>Estimated ~<strong>{livePreview.toFixed(1)} gm CO₂</strong> today — updating live</span>
                                 </div>
                             )}
 
@@ -631,7 +631,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                             {livePreview !== null && (
                                 <div className="live-preview">
                                     <div className="live-preview-dot" />
-                                    <span>Estimated ~<strong>{livePreview.toFixed(1)} kg CO₂</strong> today — updating live</span>
+                                    <span>Estimated ~<strong>{livePreview.toFixed(1)} gm CO₂</strong> today — updating live</span>
                                 </div>
                             )}
 
@@ -858,13 +858,13 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                         title: 'Urgent: Engine Oil Change',
                         desc: `Your oil was last changed ${dOil} days ago (limit: 90). Overdue oil increases CO₂ by ~10% and causes engine wear.`,
                         icon: <MatIcon name="water_drop" size={18} />,
-                        impact: '↓ –10% CO₂', savings: 'Save ~0.4 kg/day'
+                        impact: '↓ –10% CO₂', savings: 'Save ~0.4 gm/day'
                     } : null,
                     dAirFilter && dAirFilter > 365 ? {
                         title: 'Replace Air Filter',
                         desc: `Last changed ${dAirFilter} days ago (limit: 365). A clogged filter restricts air, increasing CO₂ and PM2.5 emissions.`,
                         icon: <MatIcon name="air" size={18} />,
-                        impact: '↓ –8% CO₂', savings: 'Save ~0.3 kg/day'
+                        impact: '↓ –8% CO₂', savings: 'Save ~0.3 gm/day'
                     } : null,
                     dPUC && dPUC > 180 ? {
                         title: 'Renew PUC Certificate',
@@ -906,7 +906,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                         <div className={`hero-impact-card ${rating.class}`}>
                             <div className="hero-eyebrow"><MatIcon name="public" size={14} /> Your Impact Today</div>
                             <div className="hero-co2-number">{results.total.CO2.toFixed(1)}</div>
-                            <div className="hero-co2-unit">kg CO₂ emitted today</div>
+                            <div className="hero-co2-unit">gm CO₂ emitted today</div>
                             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0.5rem' }}>
                                 <span className={`hero-rating-badge ${rating.class}`}>{rating.icon} {rating.label}</span>
                             </div>
@@ -963,7 +963,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                         {/* Pollutant Cards */}
                         <div className="pollutant-cards">
                             {[
-                                { key: 'co2', name: 'CO₂ (Carbon Dioxide)', val: results.total.CO2, unit: 'kg/day', max: maxVals.CO2 },
+                                { key: 'co2', name: 'CO₂ (Carbon Dioxide)', val: results.total.CO2, unit: 'gm/day', max: maxVals.CO2 },
                                 { key: 'nox', name: 'NOx (Nitrogen Oxides)', val: results.total.NOx, unit: 'g/day', max: maxVals.NOx },
                                 { key: 'pm25', name: 'PM2.5 (Fine Particles)', val: results.total.PM25, unit: 'g/day', max: maxVals.PM25 },
                                 { key: 'co', name: 'CO (Carbon Monoxide)', val: results.total.CO, unit: 'g/day', max: maxVals.CO },
@@ -1047,9 +1047,9 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 {co2_diff > 0 ? <><MatIcon name="warning" size={18} /> Above National Average</> : <><MatIcon name="check_circle" size={18} filled /> Below National Average</>} — CO₂ Comparison
                             </div>
                             {[
-                                { key: 'user', label: 'You (Today)', val: results.total.CO2, max: 10, color: co2_color, display: `${results.total.CO2.toFixed(1)} kg` },
-                                { key: 'avg', label: "Nat'l Avg", val: nat_avg.CO2, max: 10, color: 'rgba(255,255,255,0.3)', display: `${nat_avg.CO2} kg` },
-                                { key: 'ev', label: <><MatIcon name="bolt" size={16} /> EV Ref.</>, val: ev_ref, max: 10, color: '#3B82F6', display: `${ev_ref} kg` },
+                                { key: 'user', label: 'You (Today)', val: results.total.CO2, max: 10, color: co2_color, display: `${results.total.CO2.toFixed(1)} gm` },
+                                { key: 'avg', label: "Nat'l Avg", val: nat_avg.CO2, max: 10, color: 'rgba(255,255,255,0.3)', display: `${nat_avg.CO2} gm` },
+                                { key: 'ev', label: <><MatIcon name="bolt" size={16} /> EV Ref.</>, val: ev_ref, max: 10, color: '#3B82F6', display: `${ev_ref} gm` },
                             ].map(row => (
                                 <div className="comparison-row" key={row.key}>
                                     <div className="comparison-label">{row.label}</div>
@@ -1309,7 +1309,7 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 ) : history.map((h, i) => (
                                     <li className="history-item" key={i}>
                                         <span className="history-vehicle">{h.veh}</span>
-                                        <span className="history-co2">{h.co2} kg CO₂</span>
+                                        <span className="history-co2">{h.co2} gm CO₂</span>
                                         <span className="history-date">{h.date}</span>
                                     </li>
                                 ))}

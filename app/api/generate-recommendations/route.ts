@@ -87,7 +87,7 @@ ${emissions ? `
 4. Calculated Emissions & Impact (The "Result")
 - Overall Rating: ${emission_rating || "Unknown"}
 - Maintenance Score: ${maintenance_score !== undefined ? maintenance_score + "/100" : "Unknown"}
-- Estimated Daily CO2: ${emissions.CO2 ? emissions.CO2.toFixed(1) + " kg" : "Unknown"}
+- Estimated Daily CO2: ${emissions.CO2 ? emissions.CO2.toFixed(1) + " gm" : "Unknown"}
 - Estimated PM2.5: ${emissions.PM25 ? emissions.PM25.toFixed(2) + " g" : "Unknown"}
 - Estimated NOx: ${emissions.NOx ? emissions.NOx.toFixed(2) + " g" : "Unknown"}` : ''}
 

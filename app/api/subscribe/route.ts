@@ -81,7 +81,7 @@ function buildEmailHTML(payload: {
 
   // ── Metric cards row
   const metrics = [
-    { label: 'CO&#8322;',   value: emissionResults.CO2.toFixed(2),              unit: 'kg / day', color: emLevel.color,  bg: emLevel.bg,     border: emLevel.border },
+    { label: 'CO&#8322;',   value: emissionResults.CO2.toFixed(2),              unit: 'gm / day', color: emLevel.color,  bg: emLevel.bg,     border: emLevel.border },
     { label: 'NOx',         value: (emissionResults.NOx  * 1000).toFixed(1),    unit: 'g / day',  color: '#5B21B6',      bg: '#EDE9FE',      border: '#C4B5FD' },
     { label: 'PM2.5',       value: (emissionResults.PM25 * 1000).toFixed(2),    unit: 'g / day',  color: '#1D4ED8',      bg: '#EFF6FF',      border: '#BFDBFE' },
     { label: 'CO',          value: (emissionResults.CO   * 1000).toFixed(1),    unit: 'g / day',  color: '#BE185D',      bg: '#FDF2F8',      border: '#F9A8D4' },

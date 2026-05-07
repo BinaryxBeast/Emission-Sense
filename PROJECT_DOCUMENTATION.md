@@ -274,7 +274,7 @@ interface CalculationInput {
 
 ```typescript
 {
-    total: { CO2: kg, NOx: g, PM25: g, CO: g, HC: g },
+    total: { CO2: gm, NOx: g, PM25: g, CO: g, HC: g },
     e_hot, e_cold, e_non_exhaust, e_evap,  // Breakdown by source
     d_city, d_hwy, d_cold_total,           // Distance splits
     adjEF,                                  // Adjusted emission factors
@@ -440,7 +440,7 @@ This is a **4-step wizard** that manages the entire user experience.
 
 After calculation, the component renders:
 1. **Rating badge** (Low / Moderate / High / Critical) based on `CO₂/5 + PM2.5/0.5` score
-2. **Emission cards** — one each for CO₂ (kg), NOx (g), PM2.5 (g), CO (g), HC (g)
+2. **Emission cards** — one each for CO₂ (gm), NOx (g), PM2.5 (g), CO (g), HC (g)
 3. **Emission breakdown** — hot-running, cold-start, non-exhaust, evaporative
 4. **Transparency panel** — shows all adjustment factors applied
 5. **Maintenance score gauge** with a 0–100 score computed from service dates + engine health
@@ -632,7 +632,7 @@ npm run start
              │  EF_DB lookup → Age → Maintenance → Driving          │
              │  → Tech → Weight → Hot-run → Cold-start             │
              │  → Non-exhaust PM2.5 → Evaporative HC → Service     │
-             │  → Total emissions (CO₂ kg, NOx g, PM2.5 g, ...)    │
+             │  → Total emissions (CO₂ gm, NOx g, PM2.5 g, ...)    │
              └──────────────────────────────────────────────────────┘
 ```
 
