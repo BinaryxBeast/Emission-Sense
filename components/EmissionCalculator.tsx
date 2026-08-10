@@ -393,15 +393,14 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                                 <div style={{ animation: 'fadeInUp 0.4s ease' }}>
                                     <div style={{ textAlign: 'center', marginBottom: '24px' }}>
                                         {/* Vehicle image */}
-                                        {(extractedVehicle.imageUrl || extractedVehicle.imageKeyword) ? (
+                                        {extractedVehicle.imageUrl ? (
                                             <div className="vehicle-image-container">
-                                                <img src={extractedVehicle.imageUrl || `https://loremflickr.com/400/300/car,${encodeURIComponent(extractedVehicle.imageKeyword.replace(/ /g, ','))}`}
+                                                <img src={extractedVehicle.imageUrl}
                                                     alt={extractedVehicle.name}
+                                                    referrerPolicy="no-referrer"
                                                     onError={e => {
                                                         const t = e.target as HTMLImageElement;
-                                                        if (extractedVehicle.imageUrl && t.src === extractedVehicle.imageUrl)
-                                                            t.src = `https://loremflickr.com/400/300/car,${encodeURIComponent(extractedVehicle.imageKeyword.replace(/ /g, ','))}`;
-                                                        else t.style.display = 'none';
+                                                        t.style.display = 'none';
                                                     }} />
                                             </div>
                                         ) : (
@@ -935,16 +934,15 @@ export default function EmissionCalculator({ active }: { active: boolean }) {
                         {extractedVehicle && (
                             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
                                 {/* Vehicle image / placeholder */}
-                                {(extractedVehicle.imageUrl || extractedVehicle.imageKeyword) ? (
+                                {extractedVehicle.imageUrl ? (
                                     <div className="vehicle-image-container" style={{ margin: '0 auto 16px', maxWidth: 240 }}>
                                         <img
-                                            src={extractedVehicle.imageUrl || `https://loremflickr.com/400/300/car,${encodeURIComponent(extractedVehicle.imageKeyword.replace(/ /g, ','))}`}
+                                            src={extractedVehicle.imageUrl}
                                             alt={extractedVehicle.name}
+                                            referrerPolicy="no-referrer"
                                             onError={e => {
                                                 const t = e.target as HTMLImageElement;
-                                                if (extractedVehicle.imageUrl && t.src === extractedVehicle.imageUrl)
-                                                    t.src = `https://loremflickr.com/400/300/car,${encodeURIComponent(extractedVehicle.imageKeyword.replace(/ /g, ','))}`;
-                                                else t.style.display = 'none';
+                                                t.style.display = 'none';
                                             }}
                                         />
                                     </div>

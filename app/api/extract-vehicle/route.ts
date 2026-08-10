@@ -150,6 +150,35 @@ Return ONLY a valid JSON object. No markdown, no "here is the data", no backtick
             }
         }
 
+        // Fallback to Wikipedia API if Google Images failed
+        if (!imageUrl) {
+            try {
+                // Use wikipedia_search_term, fallback to name
+                const wikiSearchTerm = parsedData.wikipedia_search_term || parsedData.name;
+                
+                if (wikiSearchTerm) {
+                    // Use generator=search to perform a full-text search instead of exact title match
+                    const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(wikiSearchTerm)}&gsrlimit=5&prop=pageimages&format=json&pithumbsize=500`;
+                    const wikiRes = await fetch(wikiUrl);
+                    const wikiData = await wikiRes.json();
+                    
+                    if (wikiData && wikiData.query && wikiData.query.pages) {
+                        const pages = Object.values(wikiData.query.pages) as any[];
+                        
+                        // Sort by index if available to maintain search relevance order, then find first with image
+                        pages.sort((a, b) => (a.index || 99) - (b.index || 99));
+                        
+                        const pageWithThumb = pages.find(p => p.thumbnail && p.thumbnail.source);
+                        if (pageWithThumb) {
+                            imageUrl = pageWithThumb.thumbnail.source;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Wikipedia Image Fetch Error:", e);
+            }
+        }
+
         const responsePayload = {
             name: parsedData.name || 'Unknown Vehicle',
             year: parsedData.year || null,

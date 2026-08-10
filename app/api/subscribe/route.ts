@@ -358,9 +358,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
     }
 
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    const emailUser = process.env.EMAIL_USER || process.env.SMTP_USER;
+    const emailPass = process.env.EMAIL_PASS || process.env.SMTP_PASS;
+
+    if (!emailUser || !emailPass || emailUser === 'your_email@gmail.com') {
       return NextResponse.json(
-        { error: 'Email service not configured. Please add EMAIL_USER and EMAIL_PASS to .env.local.' },
+        { error: 'Email service not configured. Please set EMAIL_USER and EMAIL_PASS (App Password) in .env.' },
         { status: 503 }
       );
     }
@@ -368,8 +371,8 @@ export async function POST(request: Request) {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
+        user: emailUser,
+        pass: emailPass,
       },
     });
 

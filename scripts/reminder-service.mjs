@@ -5,7 +5,8 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 
-// Load environment variables
+// Load environment variables (.env and .env.local)
+dotenv.config();
 dotenv.config({ path: '.env.local' });
 
 const __filename = fileURLToPath(import.meta.url);
@@ -13,11 +14,14 @@ const __dirname = path.dirname(__filename);
 const DATA_FILE = path.join(process.cwd(), 'data', 'subscribers.json');
 
 // 1. Setup the Email Transporter
+const emailUser = process.env.EMAIL_USER || process.env.SMTP_USER;
+const emailPass = process.env.EMAIL_PASS || process.env.SMTP_PASS;
+
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+        user: emailUser,
+        pass: emailPass
     }
 });
 
