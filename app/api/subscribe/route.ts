@@ -321,7 +321,8 @@ function buildEmailHTML(payload: {
             </td>
           </tr>
         </table>
-        <p style="margin:0 0 4px;font-size:0.75rem;color:${C.muted};">ASEP Group 11 · Vehicle Emission Analysis Project</p>
+        <p style="margin:0 0 4px;font-size:0.75rem;color:${C.muted};">EVS Group</p>
+        <p style="margin:0 0 4px;font-size:0.75rem;color:${C.muted};">Members: Rushikesh, Aditya, Vedant, Bhavika</p>
         <p style="margin:0 0 4px;font-size:0.7rem;color:${C.muted};">Standards: IPCC / COPERT / EMEP-EEA / CPCB India</p>
         <p style="margin:10px 0 0;font-size:0.68rem;color:${C.muted};border-top:1px solid ${C.outline};padding-top:10px;">This is a one-time report. No further emails will be sent.</p>
       </td>
